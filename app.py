@@ -6,144 +6,163 @@ st.set_page_config(page_title="Procesador AVE", layout="wide")
 
 st.title("📊 Procesador de Cursos AVE")
 
-# 🔘 Selector principal
+# ======================================
+# 🔘 SELECCIÓN DE TIPO
+# ======================================
 tipo_curso = st.radio(
     "Seleccione tipo de curso:",
     ["Curso CON nota", "Curso SIN nota"]
 )
 
-# 📂 Carga archivos
-archivo_part = st.file_uploader("📂 Suba archivo de Participantes", type=["xlsx"])
+# ======================================
+# 📂 CARGA DE ARCHIVOS
+# ======================================
+file_part = st.file_uploader("📂 Suba archivo PARTICIPANTES", type=["xlsx"])
 
-# Cambia según tipo
 if tipo_curso == "Curso CON nota":
-    archivo_extra = st.file_uploader("📂 Suba archivo de Calificaciones", type=["xlsx"])
+    file_extra = st.file_uploader("📂 Suba archivo CALIFICACIONES", type=["xlsx"])
 else:
-    archivo_extra = st.file_uploader("📂 Suba archivo de Certificados", type=["xlsx"])
+    file_extra = st.file_uploader("📂 Suba archivo CERTIFICADOS", type=["xlsx"])
 
-# 🚀 PROCESAMIENTO
-if archivo_part is not None and archivo_extra is not None:
+# ======================================
+# 🚀 BOTÓN PROCESAR
+# ======================================
+if st.button("Procesar"):
 
-    try:
-        df_part = pd.read_excel(archivo_part)
-        df_part.columns = df_part.columns.str.strip()
+    if file_part is not None and file_extra is not None:
 
-        st.subheader("📊 Participantes")
-        st.dataframe(df_part.head())
+        try:
+            # ======================================
+            # 📊 PARTICIPANTES
+            # ======================================
+            df_part = pd.read_excel(file_part)
+            df_part.columns = df_part.columns.str.strip()
 
-        # 🔎 Detectar columnas
-        col_nombre = next((c for c in df_part.columns if 'nombre' in c.lower()), None)
-        col_cargo = next((c for c in df_part.columns if 'cargo' in c.lower()), None)
-        col_seccional = next((c for c in df_part.columns if 'secc' in c.lower()), None)
+            st.subheader("📊 Participantes")
+            st.dataframe(df_part.head())
 
-        # 🧩 Base resultado
-        resultado = pd.DataFrame()
-        resultado['Nombre Completo'] = df_part[col_nombre] if col_nombre else ""
-        resultado['Cedula'] = df_part['Cedula']
-        resultado['Cargo'] = df_part[col_cargo] if col_cargo else ""
-        resultado['Seccional'] = df_part[col_seccional] if col_seccional else ""
+            # ✅ CREAR CEDULA (CLAVE)
+            df_part["Cedula"] = df_part["Número de ID"].astype(str).str.strip()
 
-        # =====================================
-        # 🟢 CURSO CON NOTA
-        # =====================================
-        if tipo_curso == "Curso CON nota":
-
-            df_calif = pd.read_excel(archivo_extra)
-            df_calif.columns = df_calif.columns.str.strip()
-
-            st.subheader("📄 Calificaciones")
-            st.dataframe(df_calif.head())
-
-            col_id = next((c for c in df_calif.columns if 'ced' in c.lower()), None)
-            col_nota = next((c for c in df_calif.columns if 'nota' in c.lower()), None)
-
-            if not col_id or not col_nota:
-                st.error("❌ El archivo de calificaciones no tiene estructura válida")
-                st.stop()
-
-            # 🔄 Cruce
-            resultado = resultado.merge(
-                df_calif[[col_id, col_nota]],
-                left_on='Cedula',
-                right_on=col_id,
-                how='left'
+            # ✅ NOMBRE COMPLETO
+            df_part["Nombre Completo"] = (
+                df_part["Nombre"].astype(str).str.strip() + " " +
+                df_part["Apellido(s)"].astype(str).str.strip()
             )
 
-            resultado.rename(columns={col_nota: 'Nota'}, inplace=True)
-            resultado.drop(columns=[col_id], inplace=True)
+            # ✅ BASE FINAL
+            df_final = df_part[[
+                "Nombre Completo",
+                "Cedula",
+                "Departamento",
+                "Institución"
+            ]].copy()
 
-            # ✅ Reglas
-            resultado['Aprobo'] = resultado['Nota'].apply(
-                lambda x: 'Sí' if pd.notnull(x) and x >= 4 else 'No'
+            df_final.columns = [
+                "Nombre Completo",
+                "Cedula",
+                "Cargo",
+                "Seccional"
+            ]
+
+            # ======================================
+            # 🟢 CASO: CURSO CON NOTA
+            # ======================================
+            if tipo_curso == "Curso CON nota":
+
+                df_calif = pd.read_excel(file_extra)
+                df_calif.columns = df_calif.columns.str.strip()
+
+                st.subheader("📄 Calificaciones")
+                st.dataframe(df_calif.head())
+
+                # ✅ CREAR CEDULA
+                df_calif["Cedula"] = df_calif["Número de ID"].astype(str).str.strip()
+
+                df_calif_final = df_calif[[
+                    "Cedula",
+                    "Total del curso (Real)"
+                ]].copy()
+
+                df_calif_final.columns = ["Cedula", "Nota"]
+
+                # ✅ CONVERTIR NOTA
+                df_calif_final["Nota"] = pd.to_numeric(df_calif_final["Nota"], errors="coerce")
+
+                # 🔄 CRUCE
+                df_final = df_final.merge(df_calif_final, on="Cedula", how="left")
+
+                # ✅ APROBACIÓN (tu lógica original)
+                df_final["Aprobo"] = df_final["Nota"].apply(
+                    lambda x: "No tiene nota" if pd.isna(x)
+                    else "Sí" if x >= 3.5
+                    else "No"
+                )
+
+                df_final["Estado"] = df_final["Nota"].apply(
+                    lambda x: "No encontrado" if pd.isna(x) else "OK"
+                )
+
+            # ======================================
+            # 🔵 CASO: CURSO SIN NOTA
+            # ======================================
+            else:
+
+                df_cert = pd.read_excel(file_extra)
+                df_cert.columns = df_cert.columns.str.strip()
+
+                st.subheader("📄 Certificados")
+                st.dataframe(df_cert.head())
+
+                # ✅ CREAR CEDULA
+                df_cert["Cedula"] = df_cert["Número de ID"].astype(str).str.strip()
+
+                # ✅ MARCAR APROBADOS (C)
+                df_cert["Aprobo_flag"] = 1
+
+                # 🔄 CRUCE
+                df_final = df_final.merge(
+                    df_cert[["Cedula", "Aprobo_flag"]],
+                    on="Cedula",
+                    how="left"
+                )
+
+                # ✅ SIN NOTA
+                df_final["Nota"] = ""
+
+                # ✅ APROBACIÓN
+                df_final["Aprobo"] = df_final["Aprobo_flag"].apply(
+                    lambda x: "Sí" if pd.notnull(x) else "No"
+                )
+
+                df_final["Estado"] = df_final["Aprobo_flag"].apply(
+                    lambda x: "OK" if pd.notnull(x) else "No encontrado"
+                )
+
+                df_final.drop(columns=["Aprobo_flag"], inplace=True)
+
+            # ======================================
+            # ✅ RESULTADO
+            # ======================================
+            st.success("✅ Procesado correctamente")
+            st.dataframe(df_final)
+
+            # ======================================
+            # 📥 EXPORTAR
+            # ======================================
+            output = BytesIO()
+            with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
+                df_final.to_excel(writer, index=False, sheet_name="Resultado")
+
+            st.download_button(
+                label="📥 Descargar resultado",
+                data=output.getvalue(),
+                file_name="Resultado_Final.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
 
-            resultado['Estado'] = resultado['Nota'].apply(
-                lambda x: 'OK' if pd.notnull(x) else 'No encontrado'
-            )
+        except Exception as e:
+            st.error(f"❌ Error: {str(e)}")
 
-        # =====================================
-        # 🔵 CURSO SIN NOTA (CERTIFICADOS)
-        # =====================================
-        else:
-
-            df_cert = pd.read_excel(archivo_extra)
-            df_cert.columns = df_cert.columns.str.strip()
-
-            st.subheader("📄 Certificados")
-            st.dataframe(df_cert.head())
-
-            # 🔎 Detectar columnas
-            col_id = next((c for c in df_cert.columns if 'ced' in c.lower()), None)
-
-            if not col_id:
-                st.error("❌ El archivo de certificados debe contener cédula")
-                st.stop()
-
-            # ✅ Crear índice de certificados (aprobados)
-            df_cert['Aprobo_flag'] = 1
-
-            # 🔄 Cruce
-            resultado = resultado.merge(
-                df_cert[[col_id, 'Aprobo_flag']],
-                left_on='Cedula',
-                right_on=col_id,
-                how='left'
-            )
-
-            resultado.drop(columns=[col_id], inplace=True)
-
-            # ✅ Lógica SIN nota
-            resultado['Nota'] = ""
-
-            resultado['Aprobo'] = resultado['Aprobo_flag'].apply(
-                lambda x: 'Sí' if pd.notnull(x) else 'No'
-            )
-
-            resultado['Estado'] = resultado['Aprobo_flag'].apply(
-                lambda x: 'OK' if pd.notnull(x) else 'No encontrado'
-            )
-
-            resultado.drop(columns=['Aprobo_flag'], inplace=True)
-
-        # 📊 Resultado final
-        st.subheader("✅ Resultado final")
-        st.dataframe(resultado)
-
-        # 📥 Descargar
-        output = BytesIO()
-        with pd.ExcelWriter(output, engine='openpyxl') as writer:
-            resultado.to_excel(writer, index=False, sheet_name='Resultado')
-
-        output.seek(0)
-
-        st.download_button(
-            label="📥 Descargar resultado",
-            data=output,
-            file_name="Resultado_Curso.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        )
-
-        st.success("✅ Proceso completado correctamente")
-
-    except Exception as e:
-        st.error(f"❌ Error: {str(e)}")
+    else:
+        st.warning("⚠️ Debes subir los archivos requeridos")
