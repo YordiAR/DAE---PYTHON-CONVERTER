@@ -2,7 +2,6 @@ import streamlit as st
 import pandas as pd
 from io import BytesIO
 from openpyxl.styles import PatternFill
-from openpyxl import load_workbook
 
 # =============================
 # CONFIGURACIÓN
@@ -29,26 +28,8 @@ else:
     file_extra = st.file_uploader("📂 Suba archivo CERTIFICADOS", type=["xlsx"])
 
 # =============================
-# PROCESO
+# DETECTOR DE COLUMNA ID (CORREGIDO)
 # =============================
-if st.button("Procesar"):
-
-    if not file_part or not file_extra:
-        st.warning("Debe cargar todos los archivos")
-        st.stop()
-
-    # =============================
-    # CARGA DATA
-    # =============================
-    df_part = pd.read_excel(file_part, engine="openpyxl")
-    df_extra = pd.read_excel(file_extra, engine="openpyxl")
-
-    df_part.columns = df_part.columns.str.strip()
-    df_extra.columns = df_extra.columns.str.strip()
-
-    # =============================
-    # DETECTAR CÉDULA
-    # =============================    
 def find_cedula(df):
     posibles = [
         "cedula", "cédula",
@@ -58,56 +39,88 @@ def find_cedula(df):
     ]
 
     for c in df.columns:
-        col = c.lower().strip()
+        col = str(c).lower().strip()
+
+        # match exacto o parcial
         if col in posibles or any(p in col for p in posibles):
             return c
 
     return None
 
+# =============================
+# PROCESO PRINCIPAL
+# =============================
+if st.button("Procesar"):
 
+    if not file_part or not file_extra:
+        st.warning("Debe cargar ambos archivos")
+        st.stop()
+
+    # =============================
+    # CARGA
+    # =============================
+    df_part = pd.read_excel(file_part, engine="openpyxl")
+    df_extra = pd.read_excel(file_extra, engine="openpyxl")
+
+    df_part.columns = df_part.columns.str.strip()
+    df_extra.columns = df_extra.columns.str.strip()
+
+    # =============================
+    # DETECTAR ID
+    # =============================
     cedula_part = find_cedula(df_part)
     cedula_extra = find_cedula(df_extra)
 
-    if not cedula_part or not cedula_extra:
-        st.error("No se encontró columna de cédula")
+    if not cedula_part:
+        st.error("No se encontró columna de ID en PARTICIPANTES")
+        st.write("Columnas disponibles:", df_part.columns.tolist())
         st.stop()
 
-    df_part["_cedula"] = df_part[cedula_part].astype(str).str.strip()
-    df_extra["_cedula"] = df_extra[cedula_extra].astype(str).str.strip()
+    if not cedula_extra:
+        st.error("No se encontró columna de ID en CALIFICACIONES/CERTIFICADOS")
+        st.write("Columnas disponibles:", df_extra.columns.tolist())
+        st.stop()
 
     # =============================
-    # VALIDACIÓN CÉDULAS
+    # NORMALIZAR
     # =============================
-    mask_vacia = df_part["_cedula"].isin(["", "nan", "None"])
-    mask_dup = df_part["_cedula"].duplicated(keep=False) & ~mask_vacia
+    df_part["_id"] = df_part[cedula_part].astype(str).str.strip()
+    df_extra["_id"] = df_extra[cedula_extra].astype(str).str.strip()
 
-    cedulas_vacias = df_part.loc[mask_vacia, "_cedula"].tolist()
-    cedulas_duplicadas = df_part.loc[mask_dup, "_cedula"].unique().tolist()
+    # =============================
+    # VACÍOS Y DUPLICADOS
+    # =============================
+    mask_vacia = df_part["_id"].isin(["", "nan", "None"])
+    mask_dup = df_part["_id"].duplicated(keep=False) & ~mask_vacia
+
+    cedulas_vacias = df_part.loc[mask_vacia, "_id"].tolist()
+    cedulas_duplicadas = df_part.loc[mask_dup, "_id"].unique().tolist()
 
     # =============================
     # LIMPIEZA
     # =============================
-    df_clean = df_part[~mask_vacia].drop_duplicates(subset="_cedula", keep="first")
+    df_clean = df_part[~mask_vacia].drop_duplicates(subset="_id", keep="first")
 
     # =============================
-    # CRUCE SEGÚN TIPO
+    # CRUCE
     # =============================
     if tipo_curso == "Curso CON nota":
 
-        # buscar columna dinámica de nota
+        # buscar nota sin depender de posición
         score_col = None
         for c in df_extra.columns:
-            if c.strip() == "Total del curso (Real)":
+            if str(c).strip() == "Total del curso (Real)":
                 score_col = c
                 break
 
         if not score_col:
-            st.error('No se encontró "Total del curso (Real)"')
+            st.error("No se encontró 'Total del curso (Real)'")
+            st.write("Columnas disponibles:", df_extra.columns.tolist())
             st.stop()
 
         df_merge = df_clean.merge(
-            df_extra[["_cedula", score_col]],
-            on="_cedula",
+            df_extra[["_id", score_col]],
+            on="_id",
             how="left"
         )
 
@@ -116,15 +129,11 @@ def find_cedula(df):
             else ("NO CERTIFICADO" if pd.notna(x) else "SIN NOTA")
         )
 
-        total_cert = int((df_merge["estado"] == "CERTIFICADO").sum())
-        total_no_cert = int((df_merge["estado"] == "NO CERTIFICADO").sum())
-
     else:
 
-        # sin nota → solo validación de existencia
         df_merge = df_clean.merge(
-            df_extra[["_cedula"]],
-            on="_cedula",
+            df_extra[["_id"]],
+            on="_id",
             how="left",
             indicator=True
         )
@@ -133,13 +142,10 @@ def find_cedula(df):
             lambda x: "CERTIFICADO" if x == "both" else "NO CERTIFICADO"
         )
 
-        total_cert = int((df_merge["estado"] == "CERTIFICADO").sum())
-        total_no_cert = int((df_merge["estado"] == "NO CERTIFICADO").sum())
-
     # =============================
     # KPIs
     # =============================
-    st.subheader("📌 Resumen general")
+    st.subheader("📌 Resumen")
 
     c1, c2, c3, c4, c5 = st.columns(5)
 
@@ -147,33 +153,32 @@ def find_cedula(df):
     c2.metric("Sin duplicados", len(df_clean))
     c3.metric("Duplicados", len(cedulas_duplicadas))
     c4.metric("Vacíos", len(cedulas_vacias))
-    c5.metric("Certificados", total_cert)
+    c5.metric("Certificados", int((df_merge["estado"] == "CERTIFICADO").sum()))
 
     st.markdown("---")
 
     # =============================
     # REPORTES
     # =============================
-    left, right = st.columns(2)
+    colA, colB = st.columns(2)
 
-    with left:
-        st.subheader("🔴 Cédulas duplicadas")
-        st.write(cedulas_duplicadas if cedulas_duplicadas else "No hay duplicados")
+    with colA:
+        st.subheader("🔴 Duplicados")
+        st.write(cedulas_duplicadas if cedulas_duplicadas else "Sin duplicados")
 
-    with right:
-        st.subheader("⚠️ Cédulas vacías")
-        st.write(cedulas_vacias if cedulas_vacias else "No hay vacíos")
+    with colB:
+        st.subheader("⚠️ Vacíos")
+        st.write(cedulas_vacias if cedulas_vacias else "Sin vacíos")
 
     # =============================
-    # TABLA
+    # TABLA CON MARCADO
     # =============================
-    st.subheader("📄 Datos procesados")
-
     def color_rows(row):
-        if row["_cedula"] in cedulas_duplicadas or row["_cedula"] in cedulas_vacias:
+        if row["_id"] in cedulas_duplicadas or row["_id"] in cedulas_vacias:
             return ["background-color: #f4cccc"] * len(row)
         return [""] * len(row)
 
+    st.subheader("📄 Datos procesados")
     st.dataframe(df_merge.style.apply(color_rows, axis=1), use_container_width=True)
 
     # =============================
@@ -188,25 +193,4 @@ def find_cedula(df):
         data=output,
         file_name="resultado_procesado.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-    )
-
-    # =============================
-    # RESUMEN JSON
-    # =============================
-    resumen = {
-        "total_participantes": len(df_part),
-        "sin_duplicados": len(df_clean),
-        "duplicados": len(cedulas_duplicadas),
-        "vacias": len(cedulas_vacias),
-        "certificados": total_cert,
-        "no_certificados": total_no_cert,
-        "lista_duplicados": cedulas_duplicadas,
-        "lista_vacias": cedulas_vacias
-    }
-
-    st.download_button(
-        "⬇️ Descargar resumen",
-        data=pd.DataFrame([resumen]).to_json(orient="records", force_ascii=False),
-        file_name="resumen.json",
-        mime="application/json"
     )
