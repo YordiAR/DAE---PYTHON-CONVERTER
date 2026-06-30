@@ -48,12 +48,22 @@ if st.button("Procesar"):
 
     # =============================
     # DETECTAR CÉDULA
-    # =============================
-    def find_cedula(df):
-        for c in df.columns:
-            if "cedula" in c.lower() or "documento" in c.lower():
-                return c
-        return None
+    # =============================    
+def find_cedula(df):
+    posibles = [
+        "cedula", "cédula",
+        "documento",
+        "número de id", "numero de id",
+        "id", "identificacion", "identificación"
+    ]
+
+    for c in df.columns:
+        col = c.lower().strip()
+        if col in posibles or any(p in col for p in posibles):
+            return c
+
+    return None
+
 
     cedula_part = find_cedula(df_part)
     cedula_extra = find_cedula(df_extra)
