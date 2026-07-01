@@ -4,11 +4,11 @@ from io import BytesIO
 from openpyxl.styles import PatternFill
 from openpyxl import load_workbook
 
-st.set_page_config(page_title="Procesador AVE - Robusto", layout="wide")
-st.title("📊 Procesador de Cursos AVE (Versión Robusta)")
+st.set_page_config(page_title="Procesador AVE - Blindado", layout="wide")
+st.title("📊 Procesador de Cursos AVE (Versión Corregida)")
 
 # =====================================
-# 🔧 NORMALIZACIÓN
+# 🔧 NORMALIZACIÓN DE TEXTO
 # =====================================
 def normalize_text(series):
     return (
@@ -21,11 +21,29 @@ def normalize_text(series):
         .str.replace("Ó","O", regex=False)
         .str.replace("Ú","U", regex=False)
         .str.replace("Ñ","N", regex=False)
-        .str.replace("\s+", " ", regex=True)
+        .str.replace(r"\s+", " ", regex=True)
     )
 
 # =====================================
-# 🔎 DETECTAR COLUMNAS
+# 🔎 DETECTAR COLUMNA DE ID (MEJORADO)
+# =====================================
+def find_id_column(df):
+    posibles = [
+        "cedula", "cédula",
+        "numero de id", "número de id",
+        "no identificacion", "n° identificacion",
+        "identificacion", "identificación",
+        "documento", "documento de identidad",
+        "id"
+    ]
+    for k in posibles:
+        col = next((c for c in df.columns if k in c.lower()), None)
+        if col:
+            return col
+    return None
+
+# =====================================
+# 🔎 DETECTAR OTRAS COLUMNAS
 # =====================================
 def find_column(df, keywords):
     for k in keywords:
@@ -65,16 +83,28 @@ if st.button("Procesar"):
         df_part = pd.read_excel(file_part)
         df_part.columns = df_part.columns.str.strip()
 
-        col_id_part = find_column(df_part, ["id", "cedula", "documento"])
+        col_id_part = find_id_column(df_part)
         col_nombre_part = find_column(df_part, ["nombre"])
         col_apellido_part = find_column(df_part, ["apellido"])
 
         if not col_id_part:
-            st.error("❌ Participantes: no se encontró columna de ID")
+            st.error("❌ No se encontró columna de identificación válida")
             st.stop()
 
-        df_part["Cedula"] = normalize_text(df_part[col_id_part])
+        # =====================================
+        # 🔥 LIMPIEZA REAL DE CÉDULA
+        # =====================================
+        df_part["Cedula"] = df_part[col_id_part].astype(str)
 
+        # quitar todo lo que no sea número
+        df_part["Cedula"] = df_part["Cedula"].str.replace(r"\D", "", regex=True)
+
+        # eliminar filas sin ID válido
+        df_part = df_part[df_part["Cedula"].str.len() >= 6].copy()
+
+        # =====================================
+        # 👤 NOMBRES
+        # =====================================
         if col_nombre_part and col_apellido_part:
             df_part["Nombres y Apellidos"] = (
                 normalize_text(df_part[col_nombre_part]) + " " +
@@ -86,13 +116,13 @@ if st.button("Procesar"):
             df_part["Nombres y Apellidos"] = ""
 
         # =====================================
-        # ⚠️ CALIDAD DE PARTICIPANTES
+        # ⚠️ DUPLICADOS REALES (POR CÉDULA LIMPIA)
         # =====================================
         df_part["SIN_ID"] = df_part["Cedula"].isin(["", "NAN", "NONE"])
         df_part["DUPLICADO"] = df_part.duplicated(subset=["Cedula"], keep=False)
 
         # =====================================
-        # 🧠 BASE
+        # 🧠 BASE FINAL
         # =====================================
         base = df_part[[
             "Cedula",
@@ -111,17 +141,18 @@ if st.button("Procesar"):
             df_calif = pd.read_excel(file_extra)
             df_calif.columns = df_calif.columns.str.strip()
 
-            col_id_calif = find_column(df_calif, ["id", "cedula", "documento"])
+            col_id_calif = find_id_column(df_calif)
             col_nota = find_column(df_calif, ["total del curso", "nota", "calificacion"])
 
             if not col_id_calif or not col_nota:
                 st.error("❌ Calificaciones: estructura inválida")
                 st.stop()
 
-            df_calif["Cedula"] = normalize_text(df_calif[col_id_calif])
+            df_calif["Cedula"] = df_calif[col_id_calif].astype(str)
+            df_calif["Cedula"] = df_calif["Cedula"].str.replace(r"\D", "", regex=True)
             df_calif["Nota"] = pd.to_numeric(df_calif[col_nota], errors="coerce")
 
-            # 🔴 eliminar duplicados (mantener mejor nota)
+            # 🔴 quitar duplicados (mejor nota)
             df_calif = df_calif.sort_values("Nota", ascending=False).drop_duplicates("Cedula")
 
             resultado = base.merge(
@@ -142,15 +173,15 @@ if st.button("Procesar"):
             df_aprob = pd.read_excel(file_extra)
             df_aprob.columns = df_aprob.columns.str.strip()
 
-            col_id_aprob = find_column(df_aprob, ["id", "cedula", "documento"])
+            col_id_aprob = find_id_column(df_aprob)
 
             if not col_id_aprob:
-                st.error("❌ Aprobados: no se encontró columna de ID")
+                st.error("❌ Aprobados: no se encontró columna de ID válida")
                 st.stop()
 
-            df_aprob["Cedula"] = normalize_text(df_aprob[col_id_aprob])
+            df_aprob["Cedula"] = df_aprob[col_id_aprob].astype(str)
+            df_aprob["Cedula"] = df_aprob["Cedula"].str.replace(r"\D", "", regex=True)
 
-            # 🔴 eliminar duplicados
             df_aprob = df_aprob.drop_duplicates("Cedula")
 
             resultado = base.merge(
@@ -161,15 +192,13 @@ if st.button("Procesar"):
             )
 
             resultado["Nota"] = ""
-
             resultado["Aprobo"] = resultado["_merge"].apply(
                 lambda x: "Sí" if x == "both" else "No"
             )
-
             resultado.drop(columns=["_merge"], inplace=True)
 
         # =====================================
-        # ⚠️ IRREGULARIDADES (REAL)
+        # ⚠️ IRREGULARIDADES
         # =====================================
         resultado["Irregularidades"] = ""
 
@@ -178,19 +207,18 @@ if st.button("Procesar"):
         resultado.loc[resultado["Aprobo"] == "No", "Irregularidades"] += "NO ENCONTRADO; "
 
         # =====================================
-        # 📊 DASHBOARD SIMPLE
+        # 📊 CONTROL
         # =====================================
         st.subheader("📊 Control de calidad")
 
         col1, col2, col3, col4 = st.columns(4)
-
         col1.metric("Total", len(df_part))
         col2.metric("Sin ID", int(df_part["SIN_ID"].sum()))
-        col3.metric("Duplicados", int(df_part["DUPLICADO"].sum()))
+        col3.metric("Duplicados reales", int(df_part["DUPLICADO"].sum()))
         col4.metric("No encontrados", int((resultado["Aprobo"] == "No").sum()))
 
-        st.write("🔎 Cédulas sin ID:", df_part[df_part["SIN_ID"]]["Cedula"].tolist())
-        st.write("🔎 Cédulas duplicadas:", df_part[df_part["DUPLICADO"]]["Cedula"].tolist())
+        st.write("📌 Columna ID detectada:", col_id_part)
+        st.write("🔎 Ejemplo de cédulas:", df_part["Cedula"].head(10).tolist())
 
         # =====================================
         # 📥 EXPORTAR
