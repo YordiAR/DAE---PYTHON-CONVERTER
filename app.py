@@ -1810,8 +1810,10 @@ if procesar:
             inconsistencias 
 
         ) 
-
- 
+     st.session_state["reporte"] = reporte
+st.session_state["resumen"] = resumen
+st.session_state["inconsistencias"] = inconsistencias
+st.session_state["archivo"] = archivo
 
         barra.progress(100) 
 
