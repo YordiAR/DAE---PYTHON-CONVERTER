@@ -91,13 +91,33 @@ if st.button("Procesar"):
     # =====================================
     else:
 
-        df_aprob = pd.read_excel(file_extra)
-        df_aprob.columns = df_aprob.columns.str.strip()
 
-        df_aprob["Cedula"] = df_aprob["Número de ID"].astype(str).str.strip()
-        df_aprob["Nombres"] = df_aprob["Nombre"].astype(str).str.strip()
+df_aprob = pd.read_excel(file_extra)
+df_aprob.columns = df_aprob.columns.str.strip()
 
-        df_aprob["Aprobo_flag"] = 1
+# 🔎 detectar columnas
+col_id = next((c for c in df_aprob.columns if "id" in c.lower()), None)
+
+if not col_id:
+    st.error("❌ No se encontró columna Número de ID en aprobados")
+    st.stop()
+
+df_aprob["Cedula"] = df_aprob[col_id].astype(str).str.strip()
+df_aprob["Aprobo_flag"] = 1
+
+# ✅ cruce SOLO por cédula (más estable)
+resultado = base.merge(
+    df_aprob[["Cedula", "Aprobo_flag"]],
+    on="Cedula",
+    how="left"
+)
+
+resultado["Nota"] = ""
+resultado["Aprobo"] = resultado["Aprobo_flag"].apply(
+    lambda x: "Sí" if pd.notnull(x) else "No"
+)
+
+resultado.drop(columns=["Aprobo_flag"], inplace=True)
 
         # 🔄 CRUCE DOBLE
         resultado = base.merge(
