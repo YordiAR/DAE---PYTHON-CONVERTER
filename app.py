@@ -27,14 +27,14 @@ else:
     file_extra = st.file_uploader("📂 Suba archivo CERTIFICADOS", type=["xlsx"])
 
 # =============================
-# NORMALIZACIÓN (CLAVE)
+# NORMALIZACIÓN (SOLO PARA CRUCE)
 # =============================
 def clean_cedula(series):
     return (
         series.astype(str)
-        .str.replace(r"\.0$", "", regex=True)
-        .str.replace(r"[^0-9]", "", regex=True)
         .str.strip()
+        .str.replace(r"\.0$", "", regex=True)
+        .str.replace(r"[^\d]", "", regex=True)
         .replace({"nan": None, "None": None, "": None})
     )
 
@@ -48,58 +48,46 @@ if st.button("Procesar"):
         st.stop()
 
     # =============================
-    # PARTICIPANTES
+    # PARTICIPANTES (SIN ALTERAR DATOS)
     # =============================
     df_part = pd.read_excel(file_part, engine="openpyxl")
     df_part.columns = df_part.columns.str.strip()
 
-    st.subheader("📊 Participantes")
-    st.dataframe(df_part.head())
+    df_part["Cedula_clean"] = clean_cedula(df_part["Número de ID"])
 
-    # ✅ CÉDULA LIMPIA
-    df_part["Cedula"] = clean_cedula(df_part["Número de ID"])
+    # Detectar duplicados (solo visual / control)
+    df_part["Estado Cedula"] = df_part["Cedula_clean"].apply(
+        lambda x: "VACÍO" if pd.isna(x)
+        else "DUPLICADO" if df_part["Cedula_clean"].duplicated(keep=False).loc[df_part["Cedula_clean"] == x].any()
+        else "NO DUPLICADO"
+    )
 
-    # ✅ VACÍOS
-    mask_vacia = df_part["Cedula"].isna()
-
-    # ✅ DUPLICADOS REALES
-    mask_dup = df_part["Cedula"].notna() & df_part["Cedula"].duplicated(keep=False)
-
-    cedulas_duplicadas = df_part.loc[mask_dup, "Cedula"].unique().tolist()
-    cedulas_vacias = df_part.loc[mask_vacia, "Cedula"].tolist()
-
-    # =============================
-    # NOMBRE COMPLETO
-    # =============================
+    # Nombre completo
     df_part["Nombre Completo"] = (
         df_part["Nombre"].astype(str).str.strip() + " " +
         df_part["Apellido(s)"].astype(str).str.strip()
     )
 
     # =============================
-    # BASE FINAL
+    # BASE FINAL (NO DUPLICAR FILAS)
     # =============================
     df_final = df_part[[
         "Nombre Completo",
-        "Cedula",
+        "Número de ID",
+        "Cedula_clean",
         "Departamento",
-        "Institución"
+        "Institución",
+        "Estado Cedula"
     ]].copy()
 
-    df_final.columns = ["Nombre Completo", "Cedula", "Cargo", "Seccional"]
-
-    # =============================
-    # DUPLICADO (COL PILAR)
-    # =============================
-    def label_dup(x):
-        if pd.isna(x):
-            return "VACÍO"
-        elif x in cedulas_duplicadas:
-            return "DUPLICADO"
-        else:
-            return "NO DUPLICADO"
-
-    df_final["Estado Cedula"] = df_final["Cedula"].apply(label_dup)
+    df_final.columns = [
+        "Nombre Completo",
+        "Cedula",
+        "Cedula_clean",
+        "Cargo",
+        "Seccional",
+        "Estado Cedula"
+    ]
 
     # =============================
     # CURSO CON NOTA
@@ -109,24 +97,23 @@ if st.button("Procesar"):
         df_calif = pd.read_excel(file_extra, engine="openpyxl")
         df_calif.columns = df_calif.columns.str.strip()
 
-        st.subheader("📄 Calificaciones")
-        st.dataframe(df_calif.head())
+        df_calif["Cedula_clean"] = clean_cedula(df_calif["Número de ID"])
 
-        df_calif["Cedula"] = clean_cedula(df_calif["Número de ID"])
+        # limpiar duplicados en calificaciones (solo para no romper cruce)
+        df_calif = df_calif.drop_duplicates(subset=["Cedula_clean"], keep="first")
 
-        # ✅ BUSCAR NOTA
         score_col = "Total del curso (Real)"
         if score_col not in df_calif.columns:
             st.error("No se encontró la columna 'Total del curso (Real)'")
             st.stop()
 
-        df_calif = df_calif[["Cedula", score_col]].copy()
-        df_calif.columns = ["Cedula", "Nota"]
+        df_calif = df_calif[["Cedula_clean", score_col]].copy()
+        df_calif.columns = ["Cedula_clean", "Nota"]
 
         df_calif["Nota"] = pd.to_numeric(df_calif["Nota"], errors="coerce")
 
-        # ✅ CRUCE
-        df_final = df_final.merge(df_calif, on="Cedula", how="left")
+        # CRUCE
+        df_final = df_final.merge(df_calif, on="Cedula_clean", how="left")
 
         df_final["Aprobo"] = df_final["Nota"].apply(
             lambda x: "No tiene nota" if pd.isna(x)
@@ -136,74 +123,68 @@ if st.button("Procesar"):
 
         total_aprobados = int((df_final["Aprobo"] == "Sí").sum())
 
+        total_certificados = None
+
     # =============================
-    # CURSO SIN NOTA
+    # CURSO SIN NOTA (CERTIFICADOS)
     # =============================
     else:
 
         df_cert = pd.read_excel(file_extra, engine="openpyxl")
         df_cert.columns = df_cert.columns.str.strip()
 
-        st.subheader("📄 Certificados")
-        st.dataframe(df_cert.head())
+        df_cert["Cedula_clean"] = clean_cedula(df_cert["Número de ID"])
 
-        df_cert["Cedula"] = clean_cedula(df_cert["Número de ID"])
+        # limpiar duplicados en certificados (NO ALTERA DATOS ORIGINALES)
+        df_cert = df_cert.drop_duplicates(subset=["Cedula_clean"], keep="first")
 
-        df_cert["Aprobo_flag"] = 1
+        df_cert["Aprobo"] = "Sí"
 
         df_final = df_final.merge(
-            df_cert[["Cedula", "Aprobo_flag"]],
-            on="Cedula",
+            df_cert[["Cedula_clean", "Aprobo"]],
+            on="Cedula_clean",
             how="left"
         )
 
         df_final["Nota"] = ""
-        df_final["Aprobo"] = df_final["Aprobo_flag"].apply(
-            lambda x: "Sí" if pd.notnull(x) else "No"
-        )
-
-        df_final.drop(columns=["Aprobo_flag"], inplace=True)
 
         total_aprobados = int((df_final["Aprobo"] == "Sí").sum())
+        total_certificados = df_cert["Cedula_clean"].nunique(dropna=True)
 
     # =============================
-    # KPIs
+    # KPIs CORRECTOS
     # =============================
     st.subheader("📌 Resumen")
 
     c1, c2, c3, c4, c5 = st.columns(5)
 
-    c1.metric("Participantes", len(df_part))
-    c2.metric("Duplicados", len(cedulas_duplicadas))
-    c3.metric("Vacíos", int(mask_vacia.sum()))
+    c1.metric("Participantes (únicos)", df_part["Cedula_clean"].nunique(dropna=True))
+    c2.metric("Duplicados", int((df_part["Estado Cedula"] == "DUPLICADO").sum()))
+    c3.metric("Vacíos", int(df_part["Cedula_clean"].isna().sum()))
     c4.metric("Aprobados", total_aprobados)
-    c5.metric("Registros finales", len(df_final))
+
+    if total_certificados is not None:
+        c5.metric("Certificados (únicos)", total_certificados)
+    else:
+        c5.metric("Certificados (únicos)", "N/A")
 
     # =============================
-    # TABLA FINAL (VISUAL)
+    # TABLA FINAL
     # =============================
     st.subheader("📄 Resultado final")
-    st.dataframe(df_final, use_container_width=True)
+    st.dataframe(df_final.drop(columns=["Cedula_clean"]), use_container_width=True)
 
     # =============================
-    # EXPORTACIÓN EXCEL (SIN ESTILO, CON COL)
+    # EXPORTACIÓN EXCEL
     # =============================
     output = BytesIO()
 
     with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
-        df_final.to_excel(writer, index=False, sheet_name="Resultado")
-
-        # =============================
-        # OPCIONAL: COLOR EN EXCEL
-        # =============================
-        workbook = writer.book
-        worksheet = writer.sheets["Resultado"]
-
-        format_dup = workbook.add_format({"bg_color": "#f4cccc"})
-
-        for i, val in enumerate(df_final["Estado Cedula"], start=1):
-            if val == "DUPLICADO":
-                worksheet.set_row(i, None, format_dup)
+        df_final.drop(columns=["Cedula_clean"]).to_excel(
+            writer,
+            index=False,
+            sheet_name="Resultado"
+        )
 
     st.download_button(
         "📥 Descargar resultado",
