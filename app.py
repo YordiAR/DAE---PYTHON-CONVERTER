@@ -1,183 +1,181 @@
 import streamlit as st
 import pandas as pd
 from io import BytesIO
+from openpyxl.styles import PatternFill
+from openpyxl import load_workbook
 
-# =============================
-# CONFIGURACIÓN
-# =============================
 st.set_page_config(page_title="Procesador AVE", layout="wide")
-st.title("📊 Procesador de Cursos AVE - Versión Auditoría")
+st.title("📊 Procesador de Cursos AVE")
 
-# =============================
-# TIPO DE CURSO
-# =============================
+# =====================================
+# 🔘 TIPO DE CURSO
+# =====================================
 tipo_curso = st.radio(
     "Seleccione tipo de curso:",
     ["Curso CON nota", "Curso SIN nota"]
 )
 
-# =============================
-# ARCHIVOS
-# =============================
-file_part = st.file_uploader("📂 Suba archivo PARTICIPANTES", type=["xlsx"])
+# =====================================
+# 📂 ARCHIVOS
+# =====================================
+file_part = st.file_uploader("📂 Participantes", type=["xlsx"])
 
 if tipo_curso == "Curso CON nota":
-    file_extra = st.file_uploader("📂 Suba archivo CALIFICACIONES", type=["xlsx"])
+    file_extra = st.file_uploader("📂 Calificaciones", type=["xlsx"])
 else:
-    file_extra = st.file_uploader("📂 Suba archivo CERTIFICADOS", type=["xlsx"])
+    file_extra = st.file_uploader("📂 Aprobados", type=["xlsx"])
 
-# =============================
-# NORMALIZACIÓN ROBUSTA
-# =============================
-def clean_cedula(series: pd.Series) -> pd.Series:
-    return (
-        series.astype(str)
-        .str.strip()
-        .str.replace(r"\.0$", "", regex=True)
-        .str.replace(r"[^\d]", "", regex=True)
-        .replace({"nan": None, "None": None, "": None})
-    )
-
-# =============================
-# PROCESO
-# =============================
+# =====================================
+# 🚀 PROCESAR
+# =====================================
 if st.button("Procesar"):
 
-    if not file_part or not file_extra:
-        st.warning("Debe cargar ambos archivos")
+    if file_part is None or file_extra is None:
+        st.warning("⚠️ Debes subir ambos archivos")
         st.stop()
 
-    # =============================
-    # PARTICIPANTES
-    # =============================
-    df_part = pd.read_excel(file_part, engine="openpyxl")
+    # =====================================
+    # 📊 PARTICIPANTES
+    # =====================================
+    df_part = pd.read_excel(file_part)
     df_part.columns = df_part.columns.str.strip()
 
-    df_part["Cedula_clean"] = clean_cedula(df_part["Número de ID"])
+    # ✅ normalizar
+    df_part["Cedula"] = df_part["Número de ID"].astype(str).str.strip()
+    df_part["Nombres"] = df_part["Nombre"].astype(str).str.strip() + " " + df_part["Apellido(s)"].astype(str).str.strip()
 
-    df_part["Estado Cedula"] = df_part["Cedula_clean"].apply(
-        lambda x: "VACÍO" if pd.isna(x)
-        else "DUPLICADO" if df_part["Cedula_clean"].duplicated(keep=False).loc[df_part["Cedula_clean"] == x].any()
-        else "NO DUPLICADO"
-    )
+    # =====================================
+    # 🔍 VALIDACIONES PARTICIPANTES
+    # =====================================
+    df_part["sin_id"] = df_part["Cedula"].isna() | (df_part["Cedula"] == "") | (df_part["Cedula"] == "nan")
+    df_part["duplicado_id"] = df_part.duplicated(subset=["Cedula"], keep=False)
 
-    df_part["Nombre Completo"] = (
-        df_part["Nombre"].astype(str).str.strip() + " " +
-        df_part["Apellido(s)"].astype(str).str.strip()
-    )
-
-    df_final = df_part[[
-        "Nombre Completo",
-        "Número de ID",
-        "Cedula_clean",
+    # =====================================
+    # 🧠 BASE FINAL
+    # =====================================
+    base = df_part[[
+        "Nombres",
+        "Cedula",
         "Departamento",
-        "Institución",
-        "Estado Cedula"
+        "Institución"
     ]].copy()
 
-    df_final.columns = [
-        "Nombre Completo",
-        "Cedula",
-        "Cedula_clean",
-        "Cargo",
-        "Seccional",
-        "Estado Cedula"
-    ]
+    base.columns = ["Nombres y Apellidos", "Cedula", "Cargo", "Dependencia"]
 
-    # =============================
-    # CURSO CON NOTA
-    # =============================
+    # =====================================
+    # 🟢 CON NOTA
+    # =====================================
     if tipo_curso == "Curso CON nota":
 
-        df_calif = pd.read_excel(file_extra, engine="openpyxl")
+        df_calif = pd.read_excel(file_extra)
         df_calif.columns = df_calif.columns.str.strip()
-        df_calif["Cedula_clean"] = clean_cedula(df_calif["Número de ID"])
 
-        df_calif = df_calif.drop_duplicates(subset=["Cedula_clean"], keep="first")
+        df_calif["Cedula"] = df_calif["Número de ID"].astype(str).str.strip()
+        df_calif["Nombres"] = df_calif["Nombre"].astype(str).str.strip() + " " + df_calif["Apellido(s)"].astype(str).str.strip()
 
-        score_col = "Total del curso (Real)"
-        df_calif = df_calif[["Cedula_clean", score_col]].copy()
-        df_calif.columns = ["Cedula_clean", "Nota"]
-        df_calif["Nota"] = pd.to_numeric(df_calif["Nota"], errors="coerce")
+        df_calif["Nota"] = pd.to_numeric(df_calif["Total del curso (Real)"], errors="coerce")
 
-        df_final = df_final.merge(df_calif, on="Cedula_clean", how="left")
-
-        df_final["Aprobo"] = df_final["Nota"].apply(
-            lambda x: "No tiene nota" if pd.isna(x)
-            else "Sí" if x >= 3.5
-            else "No"
+        # 🔄 CRUCE DOBLE (ID + Nombres)
+        resultado = base.merge(
+            df_calif[["Cedula", "Nombres", "Nota"]],
+            on=["Cedula", "Nombres"],
+            how="left"
         )
 
-        total_aprobados = int((df_final["Aprobo"] == "Sí").sum())
-        total_certificados = 0
+        resultado["Aprobo"] = resultado["Nota"].apply(
+            lambda x: "Sí" if pd.notnull(x) and x >= 3.5 else "No"
+        )
 
-    # =============================
-    # CURSO SIN NOTA (CERTIFICADOS)
-    # =============================
+    # =====================================
+    # 🔵 SIN NOTA
+    # =====================================
     else:
 
-        df_cert = pd.read_excel(file_extra, engine="openpyxl")
-        df_cert.columns = df_cert.columns.str.strip()
-        df_cert["Cedula_clean"] = clean_cedula(df_cert["Número de ID"])
+        df_aprob = pd.read_excel(file_extra)
+        df_aprob.columns = df_aprob.columns.str.strip()
 
-        # 🔥 SOLO PARA REFERENCIA, NO PARA ALTERAR EL RESULTADO
-        df_cert_unique = df_cert.drop_duplicates(subset=["Cedula_clean"], keep="first")
+        df_aprob["Cedula"] = df_aprob["Número de ID"].astype(str).str.strip()
+        df_aprob["Nombres"] = df_aprob["Nombre"].astype(str).str.strip()
 
-        df_final = df_final.merge(
-            df_cert_unique[["Cedula_clean"]],
-            on="Cedula_clean",
-            how="left",
-            indicator=True
+        df_aprob["Aprobo_flag"] = 1
+
+        # 🔄 CRUCE DOBLE
+        resultado = base.merge(
+            df_aprob[["Cedula", "Nombres", "Aprobo_flag"]],
+            on=["Cedula", "Nombres"],
+            how="left"
         )
 
-        df_final["Aprobo"] = df_final["_merge"].apply(lambda x: "Sí" if x == "both" else "No")
-        df_final.drop(columns=["_merge"], inplace=True)
+        resultado["Nota"] = ""
+        resultado["Aprobo"] = resultado["Aprobo_flag"].apply(lambda x: "Sí" if pd.notnull(x) else "No")
 
-        df_final["Nota"] = ""
+    # =====================================
+    # ⚠️ IRREGULARIDADES
+    # =====================================
 
-        # 🔥 KPI CORRECTO: SOLO BASE ORIGINAL
-        total_certificados = df_cert["Cedula_clean"].nunique(dropna=True)
-        total_aprobados = int((df_final["Aprobo"] == "Sí").sum())
+    resultado["Irregularidades"] = ""
 
-        # =============================
-        # AUDITORÍA DE DIFERENCIA
-        # =============================
-        no_match = df_final.loc[
-            df_final["Aprobo"] == "No",
-            ["Cedula", "Nombre Completo"]
-        ]
+    # 🚨 sin cédula
+    resultado.loc[base["Cedula"].isin(["", "nan", None]), "Irregularidades"] += "SIN ID; "
 
-        st.subheader("⚠️ Auditoría")
-        st.write(f"Certificados base: {total_certificados}")
-        st.write(f"Certificados en resultado (match): {total_aprobados}")
-        st.write(f"Diferencia: {total_certificados - total_aprobados}")
-        st.dataframe(no_match)
+    # 🚨 duplicados
+    dup_ids = base[base["Cedula"].duplicated(keep=False)]["Cedula"].tolist()
+    resultado.loc[resultado["Cedula"].isin(dup_ids), "Irregularidades"] += "CEDULA DUPLICADA; "
 
-    # =============================
-    # KPIs
-    # =============================
-    st.subheader("📌 Resumen")
+    # 🚨 no encontrado
+    resultado.loc[resultado["Aprobo"] == "No", "Irregularidades"] += "NO ENCONTRADO; "
 
-    c1, c2, c3, c4, c5 = st.columns(5)
-    c1.metric("Participantes únicos", df_part["Cedula_clean"].nunique(dropna=True))
-    c2.metric("Duplicados", int((df_part["Estado Cedula"] == "DUPLICADO").sum()))
-    c3.metric("Vacíos", int(df_part["Cedula_clean"].isna().sum()))
-    c4.metric("Aprobados", total_aprobados)
-    c5.metric("Certificados únicos", total_certificados)
+    # =====================================
+    # 📊 RESUMEN
+    # =====================================
+    st.subheader("📊 Resumen")
+    st.write("Total participantes:", len(df_part))
+    st.write("Sin ID:", df_part["sin_id"].sum())
+    st.write("Duplicados:", df_part["duplicado_id"].sum())
+    st.write("Aprobados:", (resultado["Aprobo"] == "Sí").sum())
 
-    # =============================
-    # OUTPUT
-    # =============================
-    st.subheader("📄 Resultado final")
-    st.dataframe(df_final, use_container_width=True)
+    st.write("IDs sin ID:", df_part[df_part["sin_id"]]["Cedula"].tolist())
+    st.write("IDs duplicadas:", dup_ids)
 
+    # =====================================
+    # 📥 EXPORTAR CON COLORES
+    # =====================================
     output = BytesIO()
-    with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
-        df_final.to_excel(writer, index=False, sheet_name="Resultado")
+    with pd.ExcelWriter(output, engine="openpyxl") as writer:
+        resultado.to_excel(writer, index=False, sheet_name="Resultado")
+
+    output.seek(0)
+
+    # 🔴 aplicar colores
+    wb = load_workbook(output)
+    ws = wb["Resultado"]
+
+    rojo = PatternFill(start_color="FFFF0000", end_color="FFFF0000", fill_type="solid")
+    amarillo = PatternFill(start_color="FFFFFF00", end_color="FFFFFF00", fill_type="solid")
+
+    for row in ws.iter_rows(min_row=2):
+        irregular = str(row[resultado.columns.get_loc("Irregularidades")].value)
+
+        if "CEDULA DUPLICADA" in irregular:
+            for cell in row:
+                cell.fill = rojo
+        elif "SIN ID" in irregular:
+            for cell in row:
+                cell.fill = amarillo
+
+    final_output = BytesIO()
+    wb.save(final_output)
+    final_output.seek(0)
+
+    # =====================================
+    # ✅ RESULTADO
+    # =====================================
+    st.success("✅ Procesado correctamente")
+    st.dataframe(resultado)
 
     st.download_button(
-        "📥 Descargar resultado",
-        data=output.getvalue(),
-        file_name="Resultado_Final.xlsx",
+        "📥 Descargar Excel final",
+        data=final_output.getvalue(),
+        file_name="Resultado_Cursos_AVE.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
