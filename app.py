@@ -928,13 +928,11 @@ def generar_resumen(df):
 
     ids_vacios = ( 
 
-        df["Cédula"] 
+        df["Observaciones"] 
 
-        .astype(str) 
-
-        .str.strip() 
-
-        == "" 
+        .str.contains("ID vacío",
+                      case=False,
+                      na=False)
 
     ).sum() 
 
@@ -960,6 +958,12 @@ def generar_resumen(df):
 
     ).sum() 
 
+    aprobados_duplicados = ( 
+
+        (df["Aprobó"] == "Sí") & duplicados 
+
+    ).sum()
+
  
 
     resumen = { 
@@ -982,7 +986,11 @@ def generar_resumen(df):
 
  
 
-        "Duplicados": total_duplicados 
+        "Duplicados": total_duplicados,
+
+
+
+        "Aprobados Duplicados": aprobados_duplicados
 
  
 
@@ -1844,7 +1852,7 @@ if procesar:
 
  
 
-        c1, c2, c3, c4 = st.columns(4) 
+        c1, c2, c3, c4, c5 = st.columns(5) 
 
  
 
@@ -1886,6 +1894,15 @@ if procesar:
 
         ) 
 
+
+        c5.metric( 
+
+            "Aprobados Duplicados", 
+
+            resumen["Aprobados Duplicados"] 
+
+        )
+
  
 
         st.divider() 
@@ -1910,7 +1927,9 @@ if procesar:
 
         vacias = reporte[ 
 
-            reporte["Cédula"] == "" 
+            reporte["Observaciones"].str.contains("ID vacío",
+                      case=False,
+                      na=False)
 
         ] 
 
