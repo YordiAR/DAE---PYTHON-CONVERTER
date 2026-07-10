@@ -155,62 +155,85 @@ def agregar_observacion(df, mascara, texto):
 # PREPARAR PARTICIPANTES
 # ==========================================================
 def preparar_participantes(df):
-   df = df.copy()
-   col_nombre = obtener_columna(
-       df,
-       [
-           "Nombre"
-       ]
-   )
-   col_apellidos = obtener_columna(
-       df,
-       [
-           "Apellido(s)",
-           "Apellidos",
-           "Apellido"
-       ]
-   )
-   col_id = obtener_columna(
-       df,
-       [
-           "Número de ID",
-           "Numero de ID",
-           "Cedula",
-           "Cédula",
-           "Documento",
-           "Documento de identidad"
-       ]
-   )
-   col_cargo = buscar_columna(
-       df,
-       [
-           "Departamento",
-           "Cargo"
-       ]
-   )
-   participantes = pd.DataFrame()
-   participantes["Nombre"] = (
-       df[col_nombre]
-       .fillna("").astype(str)
-       + " " 
-       + df[col_apellidos].fillna("").astype(str)
-       ).apply(normalizar_texto)
-   participantes["NumeroID"] = (
-       df[col_id]
-       .apply(normalizar_id)
-   )
-   if col_cargo:
-       participantes["Cargo"] =  (
-           df[col_cargo]
-           .apply(normalizar_texto)
-       )
-   else:
-       participantes["Cargo"] = ""
-   participantes["Dependencia"] = ""
-   participantes["Seccional"] = ""
-   participantes = crear_observaciones(participantes)
-   return participantes
-
+  df = df.copy()
+  col_nombre = obtener_columna(
+      df,
+      [
+          "Nombre"
+      ]
+  )
+  col_apellidos = obtener_columna(
+      df,
+      [
+          "Apellido(s)",
+          "Apellidos",
+          "Apellido"
+      ]
+  )
+  col_id = obtener_columna(
+      df,
+      [
+          "Número de ID",
+          "Numero de ID",
+          "Cedula",
+          "Cédula",
+          "Documento",
+          "Documento de identidad"
+      ]
+  )
+  col_cargo = buscar_columna(
+      df,
+      [
+          "Departamento",
+          "Cargo"
+      ]
+  )
+  col_institucion = buscar_columna(
+      df,
+      [
+          "Institución",
+          "Institucion"
+      ]
+  )
+  col_correo = buscar_columna(
+      df,
+      [
+          "Correo",
+          "Email",
+          "Correo electrónico",
+          "E-mail"
+      ]
+  )
+  participantes = pd.DataFrame()
+  participantes["Nombre"] = (
+      df[col_nombre]
+      .fillna("").astype(str)
+      + " "
+      + df[col_apellidos].fillna("").astype(str)
+      ).apply(normalizar_texto)
+  participantes["NumeroID"] = (
+      df[col_id]
+      .apply(normalizar_id)
+  )
+  if col_cargo:
+      participantes["Cargo"] =  (
+          df[col_cargo]
+          .apply(normalizar_texto)
+      )
+  else:
+      participantes["Cargo"] = ""
+  participantes["Dependencia"] = ""
+  participantes["Seccional"] = ""
+  participantes["Institución"] = (
+      df[col_institucion].apply(normalizar_texto)
+      if col_institucion else ""
+  )
+  participantes["Correo"] = (
+      df[col_correo].apply(normalizar_texto)
+      if col_correo else ""
+  )
+  participantes = crear_observaciones(participantes)
+  return participantes
 # ==========================================================
 # PREPARAR PLANTA
 # ==========================================================
@@ -237,50 +260,65 @@ def preparar_planta(df):
 # PREPARAR CALIFICACIONES
 # ==========================================================
 def preparar_calificaciones(df):
-   df = df.copy()
-   col_nombre = obtener_columna(
-       df,
-       [
-           "Nombre Completo",
-           "Nombre"
-       ]
-   )
-   col_id = buscar_columna(
-       df,
-       [
-           "Número de ID",
-           "Numero de ID",
-           "Cedula",
-           "Cédula"
-       ]
-   )
-   col_nota = obtener_columna(
-       df,
-       [
-           "Total del curso (Real)",
-           "Nota",
-           "Calificación",
-           "Calificacion"
-       ]
-   )
-   resultados = pd.DataFrame()
-   resultados["Nombre"] = (
-       df[col_nombre]
-       .apply(normalizar_texto)
-   )
-   if col_id:
-       resultados["NumeroID"] = (
-           df[col_id]
-           .apply(normalizar_id)
-       )
-   else:
-       resultados["NumeroID"] = ""
-   resultados["Nota"] = pd.to_numeric(
-       df[col_nota],
-       errors="coerce"
-   )
-   return resultados
-
+  df = df.copy()
+  col_nombre = obtener_columna(
+      df,
+      [
+          "Nombre Completo",
+          "Nombre"
+      ]
+  )
+  col_id = buscar_columna(
+      df,
+      [
+          "Número de ID",
+          "Numero de ID",
+          "Cedula",
+          "Cédula"
+      ]
+  )
+  col_nota = obtener_columna(
+      df,
+      [
+          "Total del curso (Real)",
+          "Nota",
+          "Calificación",
+          "Calificacion"
+      ]
+  )
+  resultados = pd.DataFrame()
+  resultados["Nombre"] = (
+      df[col_nombre]
+      .apply(normalizar_texto)
+  )
+  notas_crudas = df[col_nota].apply(
+      lambda v: 0 if str(v).strip() == "-" else v
+  )
+  if col_id:
+      resultados["NumeroID"] = (
+          df[col_id]
+          .apply(normalizar_id)
+      )
+  else:
+      resultados["NumeroID"] = ""
+  resultados["Nota"] = pd.to_numeric(
+      notas_crudas,
+      errors="coerce"
+  )
+  col_correo = buscar_columna(
+      df,
+      [
+          "Correo",
+          "Email",
+          "Correo electrónico",
+          "E-mail"
+      ]
+  )
+  resultados["Correo"] = (
+      df[col_correo].apply(normalizar_texto)
+      if col_correo else ""
+  )
+  return resultados
 # ==========================================================
 # PREPARAR APROBADOS
 # ==========================================================
@@ -332,171 +370,100 @@ def preparar_aprobados(df):
 # CRUCE CON PLANTA
 # ==========================================================
 def enriquecer_con_planta(participantes, planta):
+   """
+   Cruza participantes con Planta para completar Dependencia/Seccional
+   y recuperar cédulas faltantes.
+   1) Cruce por NumeroID (dict O(1))
+   2) Cruce por Nombre, solo para pendientes y solo si el nombre
+      es único en Planta (evita asignar mal por homónimos)
+   3) Marca no encontrados y nombres duplicados en Planta
+   """
+   df = participantes.copy()
+   estadisticas = {
+       "Encontrados por ID": 0,
+       "Encontrados por Nombre": 0,
+       "Cedulas Recuperadas": 0,
+       "No encontrados en Planta": 0,
+       "Nombres Duplicados en Planta": 0
+
+   }
+
+   # ======================================================
+   # DICCIONARIOS DE BÚSQUEDA
+   # ======================================================
+   planta_id = planta.drop_duplicates(subset="NumeroID")
+   dict_por_id = planta_id.set_index("NumeroID")[
+       ["Dependencia", "Seccional"]
+   ].to_dict(orient="index")
+   conteo_nombres = planta.groupby("Nombre").size()
+   nombres_unicos = set(conteo_nombres[conteo_nombres == 1].index)
+   nombres_duplicados = set(conteo_nombres[conteo_nombres > 1].index)
+   planta_nombre = planta[planta["Nombre"].isin(nombres_unicos)]
+   dict_por_nombre = planta_nombre.set_index("Nombre")[
+       ["NumeroID", "Dependencia", "Seccional"]
+   ].to_dict(orient="index")
+   # ======================================================
+   # 1. CRUCE POR CÉDULA
+   # ======================================================
+   encontrados_id = df["NumeroID"].apply(
+       lambda nid: dict_por_id.get(nid) if nid != "" else None
+   )
+   mascara_id = encontrados_id.notna()
+   df.loc[mascara_id, "Dependencia"] = encontrados_id[mascara_id].apply(
+       lambda x: x["Dependencia"]
+   )
+   df.loc[mascara_id, "Seccional"] = encontrados_id[mascara_id].apply(
+       lambda x: x["Seccional"]
+   )
+   estadisticas["Encontrados por ID"] = int(mascara_id.sum())
+   agregar_observacion(df, mascara_id, "Encontrado en Planta por ID")
+   # ======================================================
+   # 2. CRUCE POR NOMBRE (solo pendientes)
+   # ======================================================
+   pendientes = ~mascara_id
+   encontrados_nombre = pd.Series(None, index=df.index, dtype=object)
+   encontrados_nombre[pendientes] = df.loc[pendientes, "Nombre"].map(
+       dict_por_nombre
+   )
+   mascara_nombre = encontrados_nombre.notna()
+   estadisticas["Encontrados por Nombre"] = int(mascara_nombre.sum())
+   df.loc[mascara_nombre, "Dependencia"] = encontrados_nombre[
+       mascara_nombre
+   ].apply(lambda x: x["Dependencia"])
+   df.loc[mascara_nombre, "Seccional"] = encontrados_nombre[
+       mascara_nombre
+   ].apply(lambda x: x["Seccional"])
+   agregar_observacion(df, mascara_nombre, "Encontrado en Planta por Nombre")
+   # Recuperar cédula solo si venía vacía
+   mascara_recuperar = mascara_nombre & (df["NumeroID"] == "")
+   df.loc[mascara_recuperar, "NumeroID"] = encontrados_nombre[
+       mascara_recuperar
+   ].apply(lambda x: x["NumeroID"])
+   estadisticas["Cedulas Recuperadas"] = int(mascara_recuperar.sum())
+   agregar_observacion(df, mascara_recuperar, "Cedula recuperada desde Planta")
+   # ======================================================
+   # 3. NO ENCONTRADOS EN PLANTA
+   # ======================================================
+   sin_dependencia = df["Dependencia"].fillna("").eq("")
+   estadisticas["No encontrados en Planta"] = int(sin_dependencia.sum())
+   agregar_observacion(df, sin_dependencia, "No encontrado en Planta")
+   # ======================================================
+   # 4. NOMBRES DUPLICADOS EN PLANTA (entre los no encontrados)
+   # ======================================================
+   mascara_dup = df["Nombre"].isin(nombres_duplicados) & sin_dependencia
+   estadisticas["Nombres Duplicados en Planta"] = int(mascara_dup.sum())
+   agregar_observacion(df, mascara_dup, "Nombre duplicado en Planta")
+   # ======================================================
+   # 5. RESPALDO: USAR INSTITUCIÓN SI NO SE ENCONTRÓ EN PLANTA
+   # ======================================================
+   if "Institución" in df.columns:
+       usar_institucion = sin_dependencia & (df["Institución"] != "")
+       df.loc[usar_institucion, "Dependencia"] = df.loc[
+           usar_institucion, "Institución"
+       ]
+   return df, estadisticas
 
-    """
 
-    Cruza participantes con Planta para completar Dependencia/Seccional
-
-    y recuperar cédulas faltantes.
-
-    1) Cruce por NumeroID (dict O(1))
-
-    2) Cruce por Nombre, solo para pendientes y solo si el nombre
-
-       es único en Planta (evita asignar mal por homónimos)
-
-    3) Marca no encontrados y nombres duplicados en Planta
-
-    """
-
-    df = participantes.copy()
-
-    estadisticas = {
-
-        "Encontrados por ID": 0,
-
-        "Encontrados por Nombre": 0,
-
-        "Cedulas Recuperadas": 0,
-
-        "No encontrados en Planta": 0,
-
-        "Nombres Duplicados en Planta": 0
-
-    }
-
-    # ======================================================
-
-    # DICCIONARIOS DE BÚSQUEDA
-
-    # ======================================================
-
-    planta_id = planta.drop_duplicates(subset="NumeroID")
-
-    dict_por_id = planta_id.set_index("NumeroID")[
-
-        ["Dependencia", "Seccional"]
-
-    ].to_dict(orient="index")
-
-    conteo_nombres = planta.groupby("Nombre").size()
-
-    nombres_unicos = set(conteo_nombres[conteo_nombres == 1].index)
-
-    nombres_duplicados = set(conteo_nombres[conteo_nombres > 1].index)
-
-    planta_nombre = planta[planta["Nombre"].isin(nombres_unicos)]
-
-    dict_por_nombre = planta_nombre.set_index("Nombre")[
-
-        ["NumeroID", "Dependencia", "Seccional"]
-
-    ].to_dict(orient="index")
-
-    # ======================================================
-
-    # 1. CRUCE POR CÉDULA
-
-    # ======================================================
-
-    encontrados_id = df["NumeroID"].apply(
-
-        lambda nid: dict_por_id.get(nid) if nid != "" else None
-
-    )
-
-    mascara_id = encontrados_id.notna()
-
-    df.loc[mascara_id, "Dependencia"] = encontrados_id[mascara_id].apply(
-
-        lambda x: x["Dependencia"]
-
-    )
-
-    df.loc[mascara_id, "Seccional"] = encontrados_id[mascara_id].apply(
-
-        lambda x: x["Seccional"]
-
-    )
-
-    estadisticas["Encontrados por ID"] = int(mascara_id.sum())
-
-    agregar_observacion(df, mascara_id, "Encontrado en Planta por ID")
-
-    # ======================================================
-
-    # 2. CRUCE POR NOMBRE (solo pendientes)
-
-    # ======================================================
-
-    pendientes = ~mascara_id
-
-    encontrados_nombre = pd.Series(None, index=df.index, dtype=object)
-
-    encontrados_nombre[pendientes] = df.loc[pendientes, "Nombre"].map(
-
-        dict_por_nombre
-
-    )
-
-    mascara_nombre = encontrados_nombre.notna()
-
-    estadisticas["Encontrados por Nombre"] = int(mascara_nombre.sum())
-
-    df.loc[mascara_nombre, "Dependencia"] = encontrados_nombre[
-
-        mascara_nombre
-
-    ].apply(lambda x: x["Dependencia"])
-
-    df.loc[mascara_nombre, "Seccional"] = encontrados_nombre[
-
-        mascara_nombre
-
-    ].apply(lambda x: x["Seccional"])
-
-    agregar_observacion(df, mascara_nombre, "Encontrado en Planta por Nombre")
-
-    # Recuperar cédula solo si venía vacía
-
-    mascara_recuperar = mascara_nombre & (df["NumeroID"] == "")
-
-    df.loc[mascara_recuperar, "NumeroID"] = encontrados_nombre[
-
-        mascara_recuperar
-
-    ].apply(lambda x: x["NumeroID"])
-
-    estadisticas["Cedulas Recuperadas"] = int(mascara_recuperar.sum())
-
-    agregar_observacion(df, mascara_recuperar, "Cedula recuperada desde Planta")
-
-    # ======================================================
-
-    # 3. NO ENCONTRADOS EN PLANTA
-
-    # ======================================================
-
-    sin_dependencia = df["Dependencia"].fillna("").eq("")
-
-    estadisticas["No encontrados en Planta"] = int(sin_dependencia.sum())
-
-    agregar_observacion(df, sin_dependencia, "No encontrado en Planta")
-
-    # ======================================================
-
-    # 4. NOMBRES DUPLICADOS EN PLANTA (entre los no encontrados)
-
-    # ======================================================
-
-    mascara_dup = df["Nombre"].isin(nombres_duplicados) & sin_dependencia
-
-    estadisticas["Nombres Duplicados en Planta"] = int(mascara_dup.sum())
-
-    agregar_observacion(df, mascara_dup, "Nombre duplicado en Planta")
-
-    return df, estadisticas
- 
 # ==========================================================
 # VALIDAR IDs VACÍOS
 # ==========================================================
