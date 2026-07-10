@@ -1,2052 +1,1027 @@
- 
-
-# ========================================================== 
-
-# APP CURSOS - STREAMLIT 
-
-# Autor: ChatGPT 
-
-# ========================================================== 
-
- 
-
-import streamlit as st 
-
-import pandas as pd 
-
-import numpy as np 
-
- 
-
-from io import BytesIO 
-
- 
-
-from openpyxl import Workbook 
-
-from openpyxl.styles import PatternFill 
-
-from openpyxl.styles import Font 
-
-from openpyxl.styles import Alignment 
-
-from openpyxl.styles import Border 
-
-from openpyxl.styles import Side 
-
-from openpyxl.utils.dataframe import dataframe_to_rows 
-
- 
-
-# ---------------------------------------------------------- 
-
-# CONFIGURACIÓN STREAMLIT 
-
-# ---------------------------------------------------------- 
-
- 
-
-st.set_page_config( 
-
-    page_title="Procesador de Cursos", 
-
-    page_icon="📚", 
-
-    layout="wide" 
-
-) 
-
- 
-
-st.title("📚 Procesador de Cursos") 
-
-st.caption("Cursos con nota y sin nota") 
-
- 
-
-# ---------------------------------------------------------- 
-
-# COLORES 
-
-# ---------------------------------------------------------- 
-
- 
-
-COLOR_ROJO = "FFC7CE" 
-
-COLOR_AMARILLO = "FFF2CC" 
-
-COLOR_VERDE = "C6EFCE" 
-
-COLOR_GRIS = "D9D9D9" 
-
- 
-
-# ---------------------------------------------------------- 
-
-# COLUMNAS ESPERADAS 
-
-# ---------------------------------------------------------- 
-
- 
-
-COLUMNAS_PARTICIPANTES = [ 
-
-    "Número de ID", 
-
-    "Nombre", 
-
-    "Apellido(s)", 
-
-    "Departamento", 
-
-    "Institución" 
-
-] 
-
- 
-
-COLUMNAS_APROBADOS = [ 
-
-    "Número de ID" 
-
-] 
-
- 
-
-# ---------------------------------------------------------- 
-
-# FUNCIONES AUXILIARES 
-
-# ---------------------------------------------------------- 
-
- 
-
-def limpiar_texto(valor): 
-
-    """ 
-
-    Limpia texto para facilitar comparaciones. 
-
-    """ 
-
- 
-
-    if pd.isna(valor): 
-
-        return "" 
-
- 
-
-    return ( 
-
-        str(valor) 
-
-        .strip() 
-
-        .upper() 
-
-        .replace("Á", "A") 
-
-        .replace("É", "E") 
-
-        .replace("Í", "I") 
-
-        .replace("Ó", "O") 
-
-        .replace("Ú", "U") 
-
-    ) 
-
- 
-
- 
-
-def nombre_completo(df): 
-
- 
-
-    nombre = df["Nombre"].fillna("").astype(str) 
-
- 
-
-    apellido = df["Apellido(s)"].fillna("").astype(str) 
-
- 
-
-    return ( 
-
-        nombre.str.strip() 
-
-        + " " 
-
-        + apellido.str.strip() 
-
-    ).str.upper().str.strip() 
-
- 
-
- 
-
-# ---------------------------------------------------------- 
-
-# DETECTAR COLUMNA DE NOTA 
-
-# ---------------------------------------------------------- 
-
- 
-
-def obtener_columna_nota(df): 
-
- 
-
-    posibles = [ 
-
- 
-
-        "Total del curso (Real)", 
-
- 
-
-        "Total del Curso (Real)", 
-
- 
-
-        "Nota", 
-
- 
-
-        "Nota Final", 
-
- 
-
-        "Calificación", 
-
- 
-
-        "Calificacion" 
-
- 
-
-    ] 
-
- 
-
-    for c in df.columns: 
-
- 
-
-        if c in posibles: 
-
-            return c 
-
- 
-
-    for c in df.columns: 
-
- 
-
-        texto = c.lower() 
-
- 
-
-        if "total del curso" in texto: 
-
-            return c 
-
- 
-
-        if "nota" in texto: 
-
-            return c 
-
- 
-
-        if "calificacion" in texto: 
-
-            return c 
-
- 
-
-    return None 
-
- 
-
-# ---------------------------------------------------------- 
-
-# LECTURA DE EXCEL 
-
-# ---------------------------------------------------------- 
-
- 
-
-def cargar_excel(archivo): 
-
- 
-
-    try: 
-
- 
-
-        df = pd.read_excel(archivo) 
-
- 
-
-        df.columns = ( 
-
-            df.columns 
-
-            .astype(str) 
-
-            .str.strip() 
-
-            .str.replace("\n", " ") 
-
-        ) 
-
- 
-
-        return df 
-
- 
-
-    except Exception as e: 
-
- 
-
-        st.error(f"Error leyendo archivo: {e}") 
-
- 
-
-        return None 
-
- 
-
- 
-
-# ---------------------------------------------------------- 
-
-# VALIDAR COLUMNAS 
-
-# ---------------------------------------------------------- 
-
- 
-
-def validar_participantes(df): 
-
- 
-
-    faltantes = [] 
-
- 
-
-    for col in COLUMNAS_PARTICIPANTES: 
-
- 
-
-        if col not in df.columns: 
-
-            faltantes.append(col) 
-
- 
-
-    return faltantes 
-
- 
-
- 
-
-def validar_aprobados(df): 
-
- 
-
-    faltantes = [] 
-
- 
-
-    for col in COLUMNAS_APROBADOS: 
-
- 
-
-        if col not in df.columns: 
-
-            faltantes.append(col) 
-
- 
-
-    return faltantes 
-
- 
-
- 
-
-def validar_calificaciones(df): 
-
- 
-
-    nota = obtener_columna_nota(df) 
-
- 
-
-    if nota is None: 
-
- 
-
-        return False 
-
- 
-
-    return True 
-
- 
-
- 
-
-# ---------------------------------------------------------- 
-
-# NORMALIZAR PARTICIPANTES 
-
-# ---------------------------------------------------------- 
-
- 
-
-def preparar_participantes(df): 
-
- 
-
-    df = df.copy() 
-
- 
-
-    df["Número de ID"] = ( 
-
-        df["Número de ID"] 
-
-        .astype(str) 
-
-        .replace("nan", "") 
-
-        .str.strip() 
-
-    ) 
-
- 
-
-    df["Nombre Completo"] = nombre_completo(df) 
-
- 
-
-    df["Observaciones"] = "" 
-
- 
-
-    return df 
-
- 
-
- 
-
-# ---------------------------------------------------------- 
-
-# NORMALIZAR CALIFICACIONES 
-
-# ---------------------------------------------------------- 
-
- 
-
-def preparar_calificaciones(df): 
-
- 
-
-    df = df.copy() 
-
- 
-
-    nota = obtener_columna_nota(df) 
-
- 
-
-    df["Nota"] = pd.to_numeric( 
-
-        df[nota], 
-
-        errors="coerce" 
-
-    ) 
-
- 
-
-    if "Número de ID" in df.columns: 
-
- 
-
-        df["Número de ID"] = ( 
-
-            df["Número de ID"] 
-
-            .astype(str) 
-
-            .replace("nan", "") 
-
-            .str.strip() 
-
-        ) 
-
- 
-
-    df["Nombre Completo"] = nombre_completo(df) 
-
- 
-
-    return df 
-
- 
-
- 
-
-# ---------------------------------------------------------- 
-
-# NORMALIZAR APROBADOS 
-
-# ---------------------------------------------------------- 
-
- 
-
-def preparar_aprobados(df): 
-
- 
-
-    df = df.copy() 
-
- 
-
-    df["Número de ID"] = ( 
-
-        df["Número de ID"] 
-
-        .astype(str) 
-
-        .replace("nan", "") 
-
-        .str.strip() 
-
-    ) 
-
- 
-
-    return df 
-
-# ========================================================== 
-
-# VALIDACIONES 
-
-# ========================================================== 
-
- 
-
-def validar_ids_vacios(df): 
-
- 
-
-    df = df.copy() 
-
- 
-
-    mascara = ( 
-
-        df["Número de ID"].isna() 
-
-        | (df["Número de ID"] == "") 
-
-        | (df["Número de ID"].astype(str).str.strip() == "") 
-
-    ) 
-
- 
-
-    df.loc[mascara, "Observaciones"] = ( 
-
-        df.loc[mascara, "Observaciones"] 
-
-        + "ID vacío; " 
-
-    ) 
-
- 
-
-    return df, mascara 
-
- 
-
- 
-
-def validar_duplicados(df): 
-
- 
-
-    df = df.copy() 
-
- 
-
-    mascara = df["Número de ID"].duplicated(keep=False) 
-
- 
-
-    mascara &= df["Número de ID"] != "" 
-
- 
-
-    df.loc[mascara, "Observaciones"] = ( 
-
-        df.loc[mascara, "Observaciones"] 
-
-        + "Cédula duplicada; " 
-
-    ) 
-
- 
-
-    return df, mascara 
-
- 
-
- 
-
-# ========================================================== 
-
-# CRUCE POR ID 
-
-# ========================================================== 
-
- 
-
-def cruzar_por_id(participantes, resultados): 
-
- 
-
-    columnas = [ 
-
-        "Número de ID", 
-
-        "Nota", 
-
-        "Nombre Completo" 
-
-    ] 
-
- 
-
-    disponibles = [ 
-
-        c for c in columnas if c in resultados.columns 
-
-    ] 
-
- 
-
-    merge = participantes.merge( 
-
-        resultados[disponibles], 
-
-        on="Número de ID", 
-
-        how="left", 
-
-        suffixes=("", "_resultado") 
-
-    ) 
-
- 
-
-    return merge 
-
- 
-
- 
-
-# ========================================================== 
-
-# CRUCE POR NOMBRE 
-
-# ========================================================== 
-
- 
-
-def completar_por_nombre(df, resultados): 
-
- 
-
-    if "Nombre Completo" not in resultados.columns: 
-
-        return df 
-
- 
-
-    resultados_nombre = resultados[ 
-
-        ["Nombre Completo", "Nota"] 
-
-    ].drop_duplicates() 
-
- 
-
-    sin_nota = df["Nota"].isna() 
-
- 
-
-    temporal = df.loc[sin_nota].merge( 
-
-        resultados_nombre, 
-
-        on="Nombre Completo", 
-
-        how="left", 
-
-        suffixes=("", "_nombre") 
-
-    ) 
-
- 
-
-    if "Nota_nombre" in temporal.columns: 
-
- 
-
-        df.loc[sin_nota, "Nota"] = temporal["Nota_nombre"].values 
-
- 
-
-    return df 
-
- 
-
- 
-
-# ========================================================== 
-
-# APROBACIÓN CURSOS CON NOTA 
-
-# ========================================================== 
-
- 
-
-def calcular_aprobados_con_nota(df): 
-
- 
-
-    df = df.copy() 
-
- 
-
-    df["Aprobó"] = np.where( 
-
-        df["Nota"] >= 3.5, 
-
-        "Sí", 
-
-        "No" 
-
-    ) 
-
- 
-
-    return df 
-
- 
-
- 
-
-# ========================================================== 
-
-# APROBACIÓN CURSOS SIN NOTA 
-
-# ========================================================== 
-
- 
-
-def calcular_aprobados_sin_nota(participantes, aprobados): 
-
- 
-
-    participantes = participantes.copy() 
-
- 
-
-    participantes["Aprobó"] = np.where( 
-
- 
-
-        participantes["Número de ID"].isin( 
-
-            aprobados["Número de ID"] 
-
-        ), 
-
- 
-
-        "Sí", 
-
- 
-
-        "No" 
-
- 
-
-    ) 
-
- 
-
-    participantes["Nota"] = "" 
-
- 
-
-    return participantes 
-
- 
-
- 
-
-# ========================================================== 
-
-# OBSERVACIONES 
-
-# ========================================================== 
-
- 
-
-def limpiar_observaciones(df): 
-
- 
-
-    df["Observaciones"] = ( 
-
-        df["Observaciones"] 
-
-        .str.strip() 
-
-        .str.rstrip(";") 
-
-    ) 
-
- 
-
-    return df 
-
- 
-
- 
-
-# ========================================================== 
-
-# DATAFRAME FINAL 
-
-# ========================================================== 
-
- 
-
-def construir_dataframe(df): 
-
- 
-
-    df = df.copy() 
-
- 
-
-    df.rename( 
-
-        columns={ 
-
-            "Número de ID": "Cédula", 
-
-            "Departamento": "Cargo", 
-
-            "Institución": "Dependencia", 
-
-            "Nombre Completo": "Nombres y apellidos" 
-
-        }, 
-
-        inplace=True 
-
-    ) 
-
- 
-
-    columnas = [ 
-
- 
-
-        "Nombres y apellidos", 
-
- 
-
-        "Cédula", 
-
- 
-
-        "Cargo", 
-
- 
-
-        "Dependencia", 
-
- 
-
-        "Nota", 
-
- 
-
-        "Aprobó", 
-
- 
-
-        "Observaciones" 
-
- 
-
-    ] 
-
- 
-
-    return df[columnas] 
-
- 
-
- 
-
-# ========================================================== 
-
-# RESUMEN 
-
-# ========================================================== 
-
- 
-
-def generar_resumen(df): 
-
- 
-
-    ids_vacios = ( 
-
-        df["Observaciones"] 
-
-        .str.contains("ID vacío",
-                      case=False,
-                      na=False)
-
-    ).sum() 
-
- 
-
-    duplicados = ( 
-
-        df["Cédula"] 
-
-        .duplicated(keep=False) 
-
-    ) 
-
- 
-
-    total_duplicados = duplicados.sum() 
-
- 
-
-    aprobados = ( 
-
-        df["Aprobó"] == "Sí" 
-
-    ).sum() 
-
-    aprobados_duplicados = ( 
-
-        (df["Aprobó"] == "Sí") & duplicados 
-
-    ).sum()
-
- 
-
-    resumen = { 
-
- 
-
-        "Participantes": len(df), 
-
- 
-
-        "Aprobados": aprobados, 
-
- 
-
-        "Reprobados": len(df) - aprobados, 
-
- 
-
-        "IDs Vacíos": ids_vacios, 
-
- 
-
-        "Duplicados": total_duplicados,
-
-
-
-        "Aprobados Duplicados": aprobados_duplicados
-
- 
-
-    } 
-
- 
-
-    return resumen 
-
- 
-
- 
-
-# ========================================================== 
-
-# INCONSISTENCIAS 
-
-# ========================================================== 
-
- 
-
-def obtener_inconsistencias(df): 
-
- 
-
-    inconsistencias = df[ 
-
- 
-
-        (df["Observaciones"] != "") 
-
- 
-
-    ].copy() 
-
- 
-
-    return inconsistencias 
-
-# ========================================================== 
-
-# EXPORTAR A EXCEL 
-
-# ========================================================== 
-
- 
-
-def exportar_excel(df_final, resumen, inconsistencias): 
-
- 
-
-    wb = Workbook() 
-
- 
-
-    ws = wb.active 
-
-    ws.title = "Reporte_Final" 
-
- 
-
-    # ------------------------- 
-
-    # Estilos 
-
-    # ------------------------- 
-
- 
-
-    encabezado_fill = PatternFill( 
-
-        fill_type="solid", 
-
-        fgColor=COLOR_GRIS 
-
-    ) 
-
- 
-
-    rojo_fill = PatternFill( 
-
-        fill_type="solid", 
-
-        fgColor=COLOR_ROJO 
-
-    ) 
-
- 
-
-    amarillo_fill = PatternFill( 
-
-        fill_type="solid", 
-
-        fgColor=COLOR_AMARILLO 
-
-    ) 
-
- 
-
-    verde_fill = PatternFill( 
-
-        fill_type="solid", 
-
-        fgColor=COLOR_VERDE 
-
-    ) 
-
- 
-
-    borde = Border( 
-
-        left=Side(style="thin"), 
-
-        right=Side(style="thin"), 
-
-        top=Side(style="thin"), 
-
-        bottom=Side(style="thin") 
-
-    ) 
-
- 
-
-    # ------------------------- 
-
-    # Reporte principal 
-
-    # ------------------------- 
-
- 
-
-    for fila in dataframe_to_rows(df_final, 
-
-                                  index=False, 
-
-                                  header=True): 
-
- 
-
-        ws.append(fila) 
-
- 
-
-    # Encabezado 
-
-    for celda in ws[1]: 
-
- 
-
-        celda.fill = encabezado_fill 
-
-        celda.font = Font(bold=True) 
-
-        celda.alignment = Alignment(horizontal="center") 
-
-        celda.border = borde 
-
- 
-
-    # Filas 
-
-    for fila in ws.iter_rows(min_row=2): 
-
- 
-
-        observacion = str(fila[6].value) 
-
- 
-
-        if "ID vacío" in observacion: 
-
- 
-
-            for c in fila: 
-
-                c.fill = amarillo_fill 
-
- 
-
-        if "duplicada" in observacion.lower(): 
-
- 
-
-            for c in fila: 
-
-                c.fill = rojo_fill 
-
- 
-
-        if fila[5].value == "Sí": 
-
- 
-
-            fila[5].fill = verde_fill 
-
- 
-
-        for c in fila: 
-
-            c.border = borde 
-
- 
-
-    # ------------------------- 
-
-    # Auto ancho columnas 
-
-    # ------------------------- 
-
- 
-
-    for columna in ws.columns: 
-
- 
-
-        largo = 0 
-
- 
-
-        letra = columna[0].column_letter 
-
- 
-
-        for celda in columna: 
-
- 
-
-            try: 
-
- 
-
-                if len(str(celda.value)) > largo: 
-
- 
-
-                    largo = len(str(celda.value)) 
-
- 
-
-            except: 
-
- 
-
-                pass 
-
- 
-
-        ws.column_dimensions[letra].width = largo + 4 
-
- 
-
-    ws.freeze_panes = "A2" 
-
- 
-
-    ws.auto_filter.ref = ws.dimensions 
-
- 
-
-    # ===================================================== 
-
-    # HOJA RESUMEN 
-
-    # ===================================================== 
-
- 
-
-    resumen_ws = wb.create_sheet("Resumen") 
-
- 
-
-    resumen_ws.append(["Indicador", "Valor"]) 
-
- 
-
-    for c in resumen_ws[1]: 
-
- 
-
-        c.fill = encabezado_fill 
-
-        c.font = Font(bold=True) 
-
-        c.border = borde 
-
- 
-
-    for k, v in resumen.items(): 
-
- 
-
-        resumen_ws.append([k, v]) 
-
- 
-
-    for fila in resumen_ws.iter_rows(): 
-
- 
-
-        for c in fila: 
-
-            c.border = borde 
-
- 
-
-    resumen_ws.column_dimensions["A"].width = 35 
-
-    resumen_ws.column_dimensions["B"].width = 15 
-
- 
-
-    # ===================================================== 
-
-    # HOJA INCONSISTENCIAS 
-
-    # ===================================================== 
-
- 
-
-    inc_ws = wb.create_sheet("Inconsistencias") 
-
- 
-
-    for fila in dataframe_to_rows( 
-
-            inconsistencias, 
-
-            index=False, 
-
-            header=True): 
-
- 
-
-        inc_ws.append(fila) 
-
- 
-
-    for celda in inc_ws[1]: 
-
- 
-
-        celda.fill = encabezado_fill 
-
-        celda.font = Font(bold=True) 
-
-        celda.border = borde 
-
- 
-
-    for fila in inc_ws.iter_rows(min_row=2): 
-
- 
-
-        obs = str(fila[6].value) 
-
- 
-
-        if "ID vacío" in obs: 
-
- 
-
-            for c in fila: 
-
-                c.fill = amarillo_fill 
-
- 
-
-        if "duplicada" in obs.lower(): 
-
- 
-
-            for c in fila: 
-
-                c.fill = rojo_fill 
-
- 
-
-        for c in fila: 
-
-            c.border = borde 
-
- 
-
-    for columna in inc_ws.columns: 
-
- 
-
-        largo = 0 
-
- 
-
-        letra = columna[0].column_letter 
-
- 
-
-        for celda in columna: 
-
- 
-
-            try: 
-
- 
-
-                if len(str(celda.value)) > largo: 
-
-                    largo = len(str(celda.value)) 
-
- 
-
-            except: 
-
-                pass 
-
- 
-
-        inc_ws.column_dimensions[letra].width = largo + 4 
-
- 
-
-    # ===================================================== 
-
-    # Guardar en memoria 
-
-    # ===================================================== 
-
- 
-
-    salida = BytesIO() 
-
- 
-
-    wb.save(salida) 
-
- 
-
-    salida.seek(0) 
-
- 
-
-    return salida 
-
- 
-
-# ========================================================== 
-
-# INTERFAZ STREAMLIT 
-
-# ========================================================== 
-
- 
-
-st.divider() 
-
- 
-
-tipo_curso = st.radio( 
-
-    "Seleccione el tipo de curso", 
-
-    ["Con nota", "Sin nota"], 
-
-    horizontal=True 
-
-) 
-
- 
-
-st.divider() 
-
- 
-
-participantes_file = st.file_uploader( 
-
-    "📄 Archivo de Participantes", 
-
-    type=["xlsx"] 
-
-) 
-
- 
-
-if tipo_curso == "Con nota": 
-
- 
-
-    resultados_file = st.file_uploader( 
-
-        "📄 Archivo de Calificaciones", 
-
-        type=["xlsx"] 
-
-    ) 
-
- 
-
-else: 
-
- 
-
-    resultados_file = st.file_uploader( 
-
-        "📄 Archivo de Aprobados", 
-
-        type=["xlsx"] 
-
-    ) 
-
- 
-
-procesar = st.button( 
-
-    "🚀 Procesar", 
-
-    use_container_width=True 
-
-) 
-
- 
-
-# ========================================================== 
-
-# PROCESAMIENTO 
-
-# ========================================================== 
-
- 
-
-if procesar: 
-
- 
-
-    if participantes_file is None: 
-
- 
-
-        st.error("Debe cargar el archivo de participantes.") 
-
-        st.stop() 
-
- 
-
-    if resultados_file is None: 
-
- 
-
-        st.error("Debe cargar el segundo archivo.") 
-
-        st.stop() 
-
- 
-
-    barra = st.progress(0) 
-
- 
-
-    try: 
-
- 
-
-        # ----------------------------------------- 
-
-        # Lectura 
-
-        # ----------------------------------------- 
-
- 
-
-        barra.progress(10) 
-
- 
-
-        participantes = cargar_excel(participantes_file) 
-
- 
-
-        resultados = cargar_excel(resultados_file) 
-
- 
-
-        # ----------------------------------------- 
-
-        # Validaciones 
-
-        # ----------------------------------------- 
-
- 
-
-        barra.progress(20) 
-
- 
-
-        faltantes = validar_participantes(participantes) 
-
- 
-
-        if len(faltantes) > 0: 
-
- 
-
-            st.error( 
-
-                f"Faltan columnas en Participantes:\n{faltantes}" 
-
-            ) 
-
- 
-
-            st.stop() 
-
- 
-
-        if tipo_curso == "Con nota": 
-
- 
-
-            if not validar_calificaciones(resultados): 
-
- 
-
-                st.error( 
-
-                    "No fue posible encontrar la columna de nota." 
-
-                ) 
-
- 
-
-                st.stop() 
-
- 
-
-        else: 
-
- 
-
-            faltantes = validar_aprobados(resultados) 
-
- 
-
-            if len(faltantes) > 0: 
-
- 
-
-                st.error( 
-
-                    f"Faltan columnas en archivo de aprobados:\n{faltantes}" 
-
-                ) 
-
- 
-
-                st.stop() 
-
- 
-
-        # ----------------------------------------- 
-
-        # Preparación 
-
-        # ----------------------------------------- 
-
- 
-
-        barra.progress(35) 
-
- 
-
-        participantes = preparar_participantes(participantes) 
-
- 
-
-        if tipo_curso == "Con nota": 
-
- 
-
-            resultados = preparar_calificaciones(resultados) 
-
- 
-
-        else: 
-
- 
-
-            resultados = preparar_aprobados(resultados) 
-
- 
-
-        # ----------------------------------------- 
-
-        # Validaciones de participantes 
-
-        # ----------------------------------------- 
-
- 
-
-        barra.progress(45) 
-
- 
-
-        participantes, ids_vacios = validar_ids_vacios( 
-
-            participantes 
-
-        ) 
-
- 
-
-        participantes, duplicados = validar_duplicados( 
-
-            participantes 
-
-        ) 
-
- 
-
-        # ----------------------------------------- 
-
-        # Procesamiento 
-
-        # ----------------------------------------- 
-
- 
-
-        barra.progress(65) 
-
- 
-
-        if tipo_curso == "Con nota": 
-
- 
-
-            df = cruzar_por_id( 
-
-                participantes, 
-
-                resultados 
-
-            ) 
-
- 
-
-            df = completar_por_nombre( 
-
-                df, 
-
-                resultados 
-
-            ) 
-
- 
-
-            df = calcular_aprobados_con_nota( 
-
-                df 
-
-            ) 
-
- 
-
-        else: 
-
- 
-
-            df = calcular_aprobados_sin_nota( 
-
-                participantes, 
-
-                resultados 
-
-            ) 
-
- 
-
-        # ----------------------------------------- 
-
-        # Observaciones 
-
-        # ----------------------------------------- 
-
- 
-
-        barra.progress(75) 
-
- 
-
-        df = limpiar_observaciones(df) 
-
- 
-
-        # ----------------------------------------- 
-
-        # DataFrame Final 
-
-        # ----------------------------------------- 
-
- 
-
-        barra.progress(85) 
-
- 
-
-        reporte = construir_dataframe(df) 
-
- 
-
-        resumen = generar_resumen(reporte) 
-
- 
-
-        inconsistencias = obtener_inconsistencias( 
-
-            reporte 
-
-        ) 
-
- 
-
-        # ----------------------------------------- 
-
-        # Excel 
-
-        # ----------------------------------------- 
-
- 
-
-        barra.progress(95) 
-
- 
-
-        archivo = exportar_excel( 
-
-            reporte, 
-
-            resumen, 
-
-            inconsistencias 
-
-        ) 
-
- 
-
-        barra.progress(100) 
-
- 
-
-        st.success("Proceso finalizado correctamente.") 
-
- 
-
-        # ===================================================== 
-
-        # INDICADORES 
-
-        # ===================================================== 
-
- 
-
-        st.divider() 
-
- 
-
-        c1, c2, c3, c4, c5 = st.columns(5) 
-
- 
-
-        c1.metric( 
-
-            "Participantes", 
-
-            resumen["Participantes"] 
-
-        ) 
-
- 
-
-        c2.metric( 
-
-            "Aprobados", 
-
-            resumen["Aprobados"] 
-
-        ) 
-
- 
-
-        c3.metric( 
-
-            "IDs Vacíos", 
-
-            resumen["IDs Vacíos"] 
-
-        ) 
-
- 
-
-        c4.metric( 
-
-            "Duplicados", 
-
-            resumen["Duplicados"] 
-
-        ) 
-
-
-        c5.metric( 
-
-            "Aprobados Duplicados", 
-
-            resumen["Aprobados Duplicados"] 
-
-        )
-
- 
-
-        st.divider() 
-
- 
-
-        # ===================================================== 
-
-        # CÉDULAS DUPLICADAS 
-
-        # ===================================================== 
-
- 
-
-        duplicadas = reporte[ 
-
-            reporte["Cédula"].duplicated(keep=False) 
-
-        ]["Cédula"].unique() 
-
- 
-
-        vacias = reporte[ 
-
-            reporte["Observaciones"].str.contains("ID vacío",
-                      case=False,
-                      na=False)
-
-        ] 
-
- 
-
-        col1, col2 = st.columns(2) 
-
- 
-
-        with col1: 
-
- 
-
-            st.subheader("Cédulas duplicadas") 
-
- 
-
-            if len(duplicadas): 
-
- 
-
-                st.write(list(duplicadas)) 
-
- 
-
-            else: 
-
- 
-
-                st.success("No existen.") 
-
- 
-
-        with col2: 
-
- 
-
-            st.subheader("Registros sin ID") 
-
- 
-
-            if len(vacias): 
-
- 
-
-                st.dataframe(vacias) 
-
- 
-
-            else: 
-
- 
-
-                st.success("No existen.") 
-
- 
-
-        st.divider() 
-
- 
-
-        # ===================================================== 
-
-        # PREVISUALIZACIÓN 
-
-        # ===================================================== 
-
- 
-
-        st.subheader("Vista previa") 
-
- 
-
-        st.dataframe( 
-
-            reporte, 
-
-            use_container_width=True, 
-
-            hide_index=True 
-
-        ) 
-
- 
-
-        st.download_button( 
-
- 
-
-            label="📥 Descargar Excel", 
-
- 
-
-            data=archivo, 
-
- 
-
-            file_name="Reporte_Final.xlsx", 
-
- 
-
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", 
-
- 
-
-            use_container_width=True 
-
- 
-
-        ) 
-
- 
-
-    except Exception as e: 
-
- 
-
-        st.exception(e) 
-
- 
+# ==========================================================
+# APP DAE - CONVERSOR DE PARTICIPANTES
+# Versión 1.5
+# ==========================================================
+import streamlit as st
+import pandas as pd
+import numpy as np
+import unicodedata
+import re
+from io import BytesIO
+from openpyxl import Workbook
+from openpyxl.styles import (
+   PatternFill,
+   Border,
+   Side,
+   Font,
+   Alignment
+)
+from openpyxl.utils.dataframe import dataframe_to_rows
+# ==========================================================
+# CONFIGURACIÓN STREAMLIT
+# ==========================================================
+st.set_page_config(
+   page_title="DAE - Conversor",
+   page_icon="📄",
+   layout="wide"
+)
+# ==========================================================
+# LOGO
+# ==========================================================
+st.image(
+   "images.png",
+   width=100
+)
+st.title("Conversor de Participantes")
+st.caption(
+   "Procesamiento automático de participantes, planta y resultados."
+)
+st.divider()
+# ==========================================================
+# SESSION STATE
+# ==========================================================
+VARIABLES = [
+   "reporte",
+   "archivo",
+   "resumen",
+   "inconsistencias"
+]
+for v in VARIABLES:
+   if v not in st.session_state:
+       st.session_state[v] = None
+# ==========================================================
+# COLORES EXCEL
+# ==========================================================
+COLOR_AMARILLO = "FFF59D"
+COLOR_ROJO = "EF9A9A"
+COLOR_VERDE = "C8E6C9"
+COLOR_GRIS = "E0E0E0"
+# ==========================================================
+# NORMALIZAR TEXTO
+# ==========================================================
+def normalizar_texto(valor):
+   if pd.isna(valor):
+       return ""
+   valor = str(valor)
+   valor = valor.upper()
+   valor = valor.strip()
+   valor = unicodedata.normalize(
+       "NFKD",
+       valor
+   )
+   valor = "".join(
+       c for c in valor
+       if not unicodedata.combining(c)
+   )
+   valor = re.sub(
+       r"\s+",
+       " ",
+       valor
+   )
+   return valor
+# ==========================================================
+# NORMALIZAR CÉDULA
+# ==========================================================
+def normalizar_id(valor):
+   if pd.isna(valor):
+       return ""
+   valor = str(valor)
+   valor = valor.replace(".0", "")
+   valor = valor.strip()
+   if valor.lower() == "nan":
+       return ""
+   return valor
+# ==========================================================
+# BUSCAR COLUMNA AUTOMÁTICAMENTE
+# ==========================================================
+def buscar_columna(df, opciones):
+   columnas = {
+       normalizar_texto(c): c
+       for c in df.columns
+   }
+   for opcion in opciones:
+       opcion = normalizar_texto(opcion)
+       if opcion in columnas:
+           return columnas[opcion]
+   return None
+# ==========================================================
+# OBTENER COLUMNA OBLIGATORIA
+# ==========================================================
+def obtener_columna(df, opciones):
+   columna = buscar_columna(
+       df,
+       opciones
+   )
+   if columna is None:
+       raise Exception(
+           f"No se encontró ninguna columna entre: {opciones}"
+       )
+   return columna
+# ==========================================================
+# CARGAR EXCEL
+# ==========================================================
+def cargar_excel(archivo):
+   try:
+       return pd.read_excel(
+           archivo,
+           dtype=object
+       )
+   except Exception as e:
+       st.error(e)
+       st.stop()
+# ==========================================================
+# CREAR OBSERVACIONES
+# ==========================================================
+def crear_observaciones(df):
+   if "Observaciones" not in df.columns:
+       df["Observaciones"] = ""
+   return df
+# ==========================================================
+# AGREGAR OBSERVACIÓN
+# ==========================================================
+def agregar_observacion(df, mascara, texto):
+   df.loc[mascara, "Observaciones"] = (
+       df.loc[mascara, "Observaciones"]
+       + texto
+       + "; "
+   )
+   return df
+# ==========================================================
+# PREPARAR PARTICIPANTES
+# ==========================================================
+def preparar_participantes(df):
+   df = df.copy()
+   col_nombre = obtener_columna(
+       df,
+       [
+           "Nombre"
+       ]
+   )
+   col_apellidos = obtener_columna(
+       df,
+       [
+           "Apellido(s)",
+           "Apellidos",
+           "Apellido"
+       ]
+   )
+   col_id = obtener_columna(
+       df,
+       [
+           "Número de ID",
+           "Numero de ID",
+           "Cedula",
+           "Cédula",
+           "Documento",
+           "Documento de identidad"
+       ]
+   )
+   col_cargo = buscar_columna(
+       df,
+       [
+           "Departamento",
+           "Cargo"
+       ]
+   )
+   participantes = pd.DataFrame()
+   participantes["Nombre"] = (
+       df[col_nombre]
+       .fillna("").astype(str)
+       + " " 
+       + df[col_apellidos].fillna("").astype(str)
+       ).apply(normalizar_texto)
+   participantes["NumeroID"] = (
+       df[col_id]
+       .apply(normalizar_id)
+   )
+   if col_cargo:
+       participantes["Cargo"] =  (
+           df[col_cargo]
+           .apply(normalizar_texto)
+       )
+   else:
+       participantes["Cargo"] = ""
+   participantes["Dependencia"] = ""
+   participantes["Seccional"] = ""
+   participantes = crear_observaciones(participantes)
+   return participantes
+
+# ==========================================================
+# PREPARAR PLANTA
+# ==========================================================
+def preparar_planta(df):
+    df = df.copy()
+    col_nombre = obtener_columna(df, ["Nombre"])
+    col_id = obtener_columna(df, ["Cedula", "Cédula"])
+    col_dependencia = obtener_columna(
+        df,
+        ["NombreDependencia", "Dependencia"]
+    )
+    col_seccional = obtener_columna(
+        df,
+        ["Seccional Nor", "Seccional"]
+    )
+    planta = pd.DataFrame()
+    planta["Nombre"] = df[col_nombre].apply(normalizar_texto)
+    planta["NumeroID"] = df[col_id].apply(normalizar_id)
+    planta["Dependencia"] = df[col_dependencia]
+    planta["Seccional"] = df[col_seccional]
+    planta = planta.drop_duplicates()
+    return planta
+
+# ==========================================================
+# PREPARAR CALIFICACIONES
+# ==========================================================
+def preparar_calificaciones(df):
+   df = df.copy()
+   col_nombre = obtener_columna(
+       df,
+       [
+           "Nombre Completo",
+           "Nombre"
+       ]
+   )
+   col_id = buscar_columna(
+       df,
+       [
+           "Número de ID",
+           "Numero de ID",
+           "Cedula",
+           "Cédula"
+       ]
+   )
+   col_nota = obtener_columna(
+       df,
+       [
+           "Total del curso (Real)",
+           "Nota",
+           "Calificación",
+           "Calificacion"
+       ]
+   )
+   resultados = pd.DataFrame()
+   resultados["Nombre"] = (
+       df[col_nombre]
+       .apply(normalizar_texto)
+   )
+   if col_id:
+       resultados["NumeroID"] = (
+           df[col_id]
+           .apply(normalizar_id)
+       )
+   else:
+       resultados["NumeroID"] = ""
+   resultados["Nota"] = pd.to_numeric(
+       df[col_nota],
+       errors="coerce"
+   )
+   return resultados
+
+# ==========================================================
+# PREPARAR APROBADOS
+# ==========================================================
+def preparar_aprobados(df):
+   df = df.copy()
+   col_nombre = obtener_columna(
+       df,
+       [
+           "Nombre Completo",
+           "Nombre"
+       ]
+   )
+   col_id = buscar_columna(
+       df,
+       [
+           "Número de ID",
+           "Numero de ID",
+           "Cedula",
+           "Cédula"
+       ]
+   )
+   aprobados = pd.DataFrame()
+   aprobados["Nombre"] = (
+       df[col_nombre]
+       .apply(normalizar_texto)
+   )
+   if col_id:
+       aprobados["NumeroID"] = (
+           df[col_id]
+           .apply(normalizar_id)
+       )
+   else:
+       aprobados["NumeroID"] = ""
+   return aprobados
+# ==========================================================
+
+# CRUCE CON PLANTA
+
+# ==========================================================
+
+def enriquecer_con_planta(participantes, planta):
+
+    """
+
+    Cruza participantes con Planta para completar Dependencia/Seccional
+
+    y recuperar cédulas faltantes.
+
+    1) Cruce por NumeroID (dict O(1))
+
+    2) Cruce por Nombre, solo para pendientes y solo si el nombre
+
+       es único en Planta (evita asignar mal por homónimos)
+
+    3) Marca no encontrados y nombres duplicados en Planta
+
+    """
+
+    df = participantes.copy()
+
+    estadisticas = {
+
+        "Encontrados por ID": 0,
+
+        "Encontrados por Nombre": 0,
+
+        "Cedulas Recuperadas": 0,
+
+        "No encontrados en Planta": 0,
+
+        "Nombres Duplicados en Planta": 0
+
+    }
+
+    # ======================================================
+
+    # DICCIONARIOS DE BÚSQUEDA
+
+    # ======================================================
+
+    planta_id = planta.drop_duplicates(subset="NumeroID")
+
+    dict_por_id = planta_id.set_index("NumeroID")[
+
+        ["Dependencia", "Seccional"]
+
+    ].to_dict(orient="index")
+
+    conteo_nombres = planta.groupby("Nombre").size()
+
+    nombres_unicos = set(conteo_nombres[conteo_nombres == 1].index)
+
+    nombres_duplicados = set(conteo_nombres[conteo_nombres > 1].index)
+
+    planta_nombre = planta[planta["Nombre"].isin(nombres_unicos)]
+
+    dict_por_nombre = planta_nombre.set_index("Nombre")[
+
+        ["NumeroID", "Dependencia", "Seccional"]
+
+    ].to_dict(orient="index")
+
+    # ======================================================
+
+    # 1. CRUCE POR CÉDULA
+
+    # ======================================================
+
+    encontrados_id = df["NumeroID"].apply(
+
+        lambda nid: dict_por_id.get(nid) if nid != "" else None
+
+    )
+
+    mascara_id = encontrados_id.notna()
+
+    df.loc[mascara_id, "Dependencia"] = encontrados_id[mascara_id].apply(
+
+        lambda x: x["Dependencia"]
+
+    )
+
+    df.loc[mascara_id, "Seccional"] = encontrados_id[mascara_id].apply(
+
+        lambda x: x["Seccional"]
+
+    )
+
+    estadisticas["Encontrados por ID"] = int(mascara_id.sum())
+
+    agregar_observacion(df, mascara_id, "Encontrado en Planta por ID")
+
+    # ======================================================
+
+    # 2. CRUCE POR NOMBRE (solo pendientes)
+
+    # ======================================================
+
+    pendientes = ~mascara_id
+
+    encontrados_nombre = pd.Series(None, index=df.index, dtype=object)
+
+    encontrados_nombre[pendientes] = df.loc[pendientes, "Nombre"].map(
+
+        dict_por_nombre
+
+    )
+
+    mascara_nombre = encontrados_nombre.notna()
+
+    estadisticas["Encontrados por Nombre"] = int(mascara_nombre.sum())
+
+    df.loc[mascara_nombre, "Dependencia"] = encontrados_nombre[
+
+        mascara_nombre
+
+    ].apply(lambda x: x["Dependencia"])
+
+    df.loc[mascara_nombre, "Seccional"] = encontrados_nombre[
+
+        mascara_nombre
+
+    ].apply(lambda x: x["Seccional"])
+
+    agregar_observacion(df, mascara_nombre, "Encontrado en Planta por Nombre")
+
+    # Recuperar cédula solo si venía vacía
+
+    mascara_recuperar = mascara_nombre & (df["NumeroID"] == "")
+
+    df.loc[mascara_recuperar, "NumeroID"] = encontrados_nombre[
+
+        mascara_recuperar
+
+    ].apply(lambda x: x["NumeroID"])
+
+    estadisticas["Cedulas Recuperadas"] = int(mascara_recuperar.sum())
+
+    agregar_observacion(df, mascara_recuperar, "Cedula recuperada desde Planta")
+
+    # ======================================================
+
+    # 3. NO ENCONTRADOS EN PLANTA
+
+    # ======================================================
+
+    sin_dependencia = df["Dependencia"].fillna("").eq("")
+
+    estadisticas["No encontrados en Planta"] = int(sin_dependencia.sum())
+
+    agregar_observacion(df, sin_dependencia, "No encontrado en Planta")
+
+    # ======================================================
+
+    # 4. NOMBRES DUPLICADOS EN PLANTA (entre los no encontrados)
+
+    # ======================================================
+
+    mascara_dup = df["Nombre"].isin(nombres_duplicados) & sin_dependencia
+
+    estadisticas["Nombres Duplicados en Planta"] = int(mascara_dup.sum())
+
+    agregar_observacion(df, mascara_dup, "Nombre duplicado en Planta")
+
+    return df, estadisticas
+ 
+# ==========================================================
+# VALIDAR IDs VACÍOS
+# ==========================================================
+def validar_ids_vacios(df):
+   df = df.copy()
+   mascara = df["NumeroID"] == ""
+   agregar_observacion(
+       df,
+       mascara,
+       "ID vacío"
+   )
+   return df, int(mascara.sum())
+
+# ==========================================================
+# VALIDAR DUPLICADOS
+# ==========================================================
+def validar_duplicados(df):
+   df = df.copy()
+   mascara = (
+       df["NumeroID"] != ""
+   ) & (
+       df["NumeroID"].duplicated(keep=False)
+   )
+   agregar_observacion(
+       df,
+       mascara,
+       "Cédula duplicada"
+   )
+   duplicados = df.loc[
+       mascara,
+       "NumeroID"
+   ].unique()
+   return df, list(duplicados)
+
+# ==========================================================
+# APROBADOS DUPLICADOS
+# ==========================================================
+def contar_aprobados_duplicados(df):
+   mascara = (
+       df["Aprobó"] == "Sí"
+   ) & (
+       df["NumeroID"].duplicated(
+           keep=False
+       )
+   )
+   return int(
+       df.loc[
+           mascara,
+           "NumeroID"
+       ].nunique()
+   )
+
+# ==========================================================
+# LIMPIAR OBSERVACIONES
+# ==========================================================
+def limpiar_observaciones(df):
+   df = df.copy()
+   df["Observaciones"] = (
+       df["Observaciones"]
+       .str.replace(
+           ";;",
+           ";",
+           regex=False
+       )
+       .str.strip()
+       .str.rstrip(";")
+   )
+   return df
+
+# ==========================================================
+# VALIDACIÓN GENERAL
+# ==========================================================
+def ejecutar_validaciones(df):
+   df, ids_vacios = validar_ids_vacios(df)
+   df, duplicados = validar_duplicados(df)
+   df = limpiar_observaciones(df)
+   estadisticas = {
+       "IDs Vacíos": ids_vacios,
+       "Duplicados": len(duplicados),
+       "Lista Duplicados": duplicados
+   }
+   return df, estadisticas
+# ==========================================================
+# CRUCE CON CALIFICACIONES
+# ==========================================================
+def procesar_con_nota(participantes, resultados):
+   participantes = participantes.copy()
+   #--------------------------------------------------------
+   # CRUCE POR CÉDULA
+   #--------------------------------------------------------
+   resultados_id = resultados.drop_duplicates(
+       subset="NumeroID"
+   )
+   df = participantes.merge(
+       resultados_id,
+       on="NumeroID",
+       how="left",
+       suffixes=("", "_resultado")
+   )
+   #--------------------------------------------------------
+   # CRUCE POR NOMBRE
+   #--------------------------------------------------------
+   pendientes = df["Nota"].isna()
+   if pendientes.any():
+       resultados_nombre = resultados.drop_duplicates(
+           subset="Nombre"
+       )
+       pendientes_df = df.loc[pendientes].copy()
+       pendientes_df["IndiceOriginal"] = pendientes_df.index
+       pendientes_df = df.loc[pendientes].merge(
+           resultados_nombre,
+           on="Nombre",
+           how="left",
+           suffixes=("", "_nombre")
+       )
+       if "Nota_nombre" in pendientes_df.columns:
+           df.loc[pendientes, "Nota"] = pendientes_df[
+               "Nota_nombre"
+           ].values
+   #--------------------------------------------------------
+   # APROBADOS
+   #--------------------------------------------------------
+   df["Aprobó"] = np.where(
+       df["Nota"] >= 3.5,
+       "Sí",
+       "No"
+   )
+   return df
+
+# ==========================================================
+# CURSOS SIN NOTA
+# ==========================================================
+def procesar_sin_nota(participantes, aprobados):
+   participantes = participantes.copy()
+   aprobados_id = aprobados.drop_duplicates(
+       subset="NumeroID"
+   )
+   participantes = participantes.merge(
+       aprobados_id,
+       on="NumeroID",
+       how="left",
+       suffixes=("", "_apr")
+   )
+   participantes["Nota"] = ""
+   participantes["Aprobó"] = np.where(
+       participantes["Nombre_apr"].notna(),
+       "Sí",
+       "No"
+   )
+   eliminar = [
+       c
+       for c in participantes.columns
+       if c.endswith("_apr")
+   ]
+   participantes.drop(
+       columns=eliminar,
+       inplace=True,
+       errors="ignore"
+   )
+   return participantes
+
+# ==========================================================
+# MOTOR GENERAL
+# ==========================================================
+def procesar_resultados(
+   participantes,
+   resultados,
+   tipo_curso
+):
+   if tipo_curso == "Con nota":
+       return procesar_con_nota(
+           participantes,
+           resultados
+       )
+   return procesar_sin_nota(
+       participantes,
+       resultados
+   )
+# ==========================================================
+# CONSTRUIR REPORTE FINAL
+# ==========================================================
+def construir_reporte(df):
+   reporte = df.copy()
+   reporte = reporte.rename(
+       columns={
+           "Nombre": "Nombres y apellidos",
+           "NumeroID": "Cédula"
+       }
+   )
+   columnas = [
+       "Nombres y apellidos",
+       "Cédula",
+       "Cargo",
+       "Seccional",
+       "Dependencia",
+       "Nota",
+       "Aprobó",
+       "Observaciones"
+   ]
+   for columna in columnas:
+       if columna not in reporte.columns:
+           reporte[columna] = ""
+   reporte = reporte[columnas]
+   return reporte
+
+# ==========================================================
+# GENERAR RESUMEN
+# ==========================================================
+def generar_resumen(
+   reporte,
+   estadisticas_planta,
+   estadisticas_validacion
+):
+   resumen = {}
+   resumen["Total participantes"] = len(reporte)
+   resumen["Total aprobados"] = int(
+       (reporte["Aprobó"] == "Sí").sum()
+   )
+   resumen["Total reprobados"] = int(
+       (reporte["Aprobó"] == "No").sum()
+   )
+   resumen["IDs vacíos"] = estadisticas_validacion[
+       "IDs Vacíos"
+   ]
+   resumen["Duplicados"] = estadisticas_validacion[
+       "Duplicados"
+   ]
+   resumen["Encontrados por ID"] = estadisticas_planta[
+       "Encontrados por ID"
+   ]
+   resumen["Encontrados por Nombre"] = estadisticas_planta[
+       "Encontrados por Nombre"
+   ]
+   resumen["Cédulas recuperadas"] = estadisticas_planta[
+       "Cedulas Recuperadas"
+   ]
+   resumen["No encontrados en Planta"] = estadisticas_planta[
+       "No encontrados en Planta"
+   ]
+   resumen["Nombres duplicados en Planta"] = estadisticas_planta[
+       "Nombres Duplicados en Planta"
+   ]
+   resumen["Aprobados duplicados"] = contar_aprobados_duplicados(
+       reporte.rename(columns={"Cédula": "NumeroID"})
+   )
+   return resumen
+# ==========================================================
+# EXPORTAR A EXCEL
+# ==========================================================
+def exportar_excel(reporte, resumen):
+   wb = Workbook()
+   # ======================================================
+   # HOJA REPORTE
+   # ======================================================
+   ws = wb.active
+   ws.title = "Reporte"
+   for fila in dataframe_to_rows(
+       reporte,
+       index=False,
+       header=True
+   ):
+       ws.append(fila)
+   # ---------------------------------------------
+   # Encabezados
+   # ---------------------------------------------
+   encabezado = PatternFill(
+       fill_type="solid",
+       fgColor=COLOR_VERDE
+   )
+   borde = Border(
+       left=Side(style="thin"),
+       right=Side(style="thin"),
+       top=Side(style="thin"),
+       bottom=Side(style="thin")
+   )
+   fuente = Font(
+       bold=True
+   )
+   for celda in ws[1]:
+       celda.fill = encabezado
+       celda.font = fuente
+       celda.border = borde
+       celda.alignment = Alignment(
+           horizontal="center"
+       )
+   # ---------------------------------------------
+   # Pintar filas
+   # ---------------------------------------------
+   amarillo = PatternFill(
+       fill_type="solid",
+       fgColor=COLOR_AMARILLO
+   )
+   rojo = PatternFill(
+       fill_type="solid",
+       fgColor=COLOR_ROJO
+   )
+   col_obs = None
+   for i, c in enumerate(ws[1], start=1):
+       if c.value == "Observaciones":
+           col_obs = i
+           break
+   if col_obs:
+       for fila in ws.iter_rows(min_row=2):
+           texto = str(
+               fila[col_obs - 1].value
+           )
+           color = None
+           if "Cédula duplicada" in texto:
+               color = rojo
+           elif "ID vacío" in texto:
+               color = amarillo
+           if color:
+               for celda in fila:
+                   celda.fill = color
+   # ---------------------------------------------
+   # Ajustar ancho columnas
+   # ---------------------------------------------
+   for columna in ws.columns:
+       largo = max(
+           len(str(c.value))
+           if c.value is not None
+           else 0
+           for c in columna
+       )
+       ws.column_dimensions[
+           columna[0].column_letter
+       ].width = largo + 3
+   # ======================================================
+   # HOJA RESUMEN
+   # ======================================================
+   resumen_ws = wb.create_sheet("Resumen")
+   resumen_ws.append([
+       "Indicador",
+       "Valor"
+   ])
+   resumen_ws["A1"].fill = encabezado
+   resumen_ws["B1"].fill = encabezado
+   resumen_ws["A1"].font = fuente
+   resumen_ws["B1"].font = fuente
+   for indicador, valor in resumen.items():
+       resumen_ws.append([
+           indicador,
+           valor
+       ])
+   for columna in resumen_ws.columns:
+       largo = max(
+           len(str(c.value))
+           if c.value is not None
+           else 0
+           for c in columna
+       )
+       resumen_ws.column_dimensions[
+           columna[0].column_letter
+       ].width = largo + 3
+   # ======================================================
+   # GUARDAR
+   # ======================================================
+   salida = BytesIO()
+   wb.save(salida)
+   salida.seek(0)
+   return salida
+# ==========================================================
+# INTERFAZ
+# ==========================================================
+tipo_curso = st.selectbox(
+   "Tipo de curso",
+   [
+       "Con nota",
+       "Sin nota"
+   ]
+)
+st.divider()
+col1, col2 = st.columns(2)
+with col1:
+   participantes_file = st.file_uploader(
+       "📄 Participantes",
+       type="xlsx"
+   )
+   planta_file = st.file_uploader(
+       "🏢 Planta",
+       type="xlsx"
+   )
+with col2:
+   if tipo_curso == "Con nota":
+       resultados_file = st.file_uploader(
+           "📝 Calificaciones",
+           type="xlsx"
+       )
+   else:
+       resultados_file = st.file_uploader(
+           "✅ Aprobados",
+           type="xlsx"
+       )
+st.divider()
+# ==========================================================
+# BOTÓN
+# ==========================================================
+if st.button(
+   "🚀 Procesar",
+   use_container_width=True
+):
+   if participantes_file is None:
+       st.error("Debe cargar Participantes.")
+       st.stop()
+   if planta_file is None:
+       st.error("Debe cargar Planta.")
+       st.stop()
+   if resultados_file is None:
+       st.error("Debe cargar el archivo de resultados.")
+       st.stop()
+   barra = st.progress(0)
+   # ------------------------------------------------------
+   # Leer archivos
+   # ------------------------------------------------------
+   participantes = cargar_excel(
+       participantes_file
+   )
+   planta = cargar_excel(
+       planta_file
+   )
+   resultados = cargar_excel(
+       resultados_file
+   )
+   barra.progress(10)
+   # ------------------------------------------------------
+   # Preparar
+   # ------------------------------------------------------
+   participantes = preparar_participantes(
+       participantes
+   )
+   planta = preparar_planta(
+       planta
+   )
+   if tipo_curso == "Con nota":
+       resultados = preparar_calificaciones(
+           resultados
+       )
+   else:
+       resultados = preparar_aprobados(
+           resultados
+       )
+   barra.progress(25)
+   # ------------------------------------------------------
+   # Cruce Planta
+   # ------------------------------------------------------
+   participantes, estadisticas_planta = enriquecer_con_planta(
+       participantes,
+       planta
+   )
+   barra.progress(45)
+   # ------------------------------------------------------
+   # Validaciones
+   # ------------------------------------------------------
+   participantes, estadisticas_validacion = ejecutar_validaciones(
+       participantes
+   )
+   barra.progress(60)
+   # ------------------------------------------------------
+   # Resultados
+   # ------------------------------------------------------
+   participantes = procesar_resultados(
+       participantes,
+       resultados,
+       tipo_curso
+   )
+   barra.progress(80)
+   # ------------------------------------------------------
+   # Reporte
+   # ------------------------------------------------------
+   reporte = construir_reporte(
+       participantes
+   )
+   resumen = generar_resumen(
+       reporte,
+       estadisticas_planta,
+       estadisticas_validacion
+   )
+   barra.progress(100)
+   # ------------------------------------------------------
+   # Guardar Session State
+   # ------------------------------------------------------
+   st.session_state.reporte = reporte
+   st.session_state.resumen = resumen
+   st.session_state.archivo = exportar_excel(
+       reporte,
+       resumen
+   )
+   st.success("Proceso finalizado correctamente.")
+# ==========================================================
+# RESULTADOS
+# ==========================================================
+if st.session_state.reporte is not None:
+   st.divider()
+   resumen = st.session_state.resumen
+   c1, c2, c3, c4 = st.columns(4)
+   c1.metric(
+       "Participantes",
+       resumen["Total participantes"]
+   )
+   c2.metric(
+       "Aprobados",
+       resumen["Total aprobados"]
+   )
+   c3.metric(
+       "IDs Vacíos",
+       resumen["IDs vacíos"]
+   )
+   c4.metric(
+       "Duplicados",
+       resumen["Duplicados"]
+   )
+   c1, c2, c3, c4 = st.columns(4)
+   c1.metric(
+       "Encontrados ID",
+       resumen["Encontrados por ID"]
+   )
+   c2.metric(
+       "Encontrados Nombre",
+       resumen["Encontrados por Nombre"]
+   )
+   c3.metric(
+       "Cédulas recuperadas",
+       resumen["Cédulas recuperadas"]
+   )
+   c4.metric(
+       "No encontrados",
+       resumen["No encontrados en Planta"]
+   )
+   st.divider()
+   st.subheader("Vista previa")
+   st.dataframe(
+       st.session_state.reporte,
+       use_container_width=True,
+       height=500
+   )
+   st.download_button(
+       "📥 Descargar Excel",
+       data=st.session_state.archivo,
+       file_name="Reporte_Final.xlsx",
+       mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+       use_container_width=True
+   )
