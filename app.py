@@ -1,5 +1,5 @@
 # ==========================================================
-# APP DAE - CONVERSOR DE PARTICIPANTES
+# APP DAE - CONVERSOR DE AVE
 # Versión 1.5
 # ==========================================================
 import streamlit as st
@@ -32,7 +32,7 @@ st.image(
    "images.png",
    width=100
 )
-st.title("Conversor de Participantes")
+st.title("Conversor de AVE")
 st.caption(
    "Procesamiento automático de participantes, planta y resultados."
 )
