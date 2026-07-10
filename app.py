@@ -183,6 +183,17 @@ def preparar_participantes(df):
            "Cargo"
        ]
    )
+   col_institucion = buscar_columna(
+       df,
+       [
+           "Institución",
+           "Institucion"
+       ]
+   )
+   participantes["Institución"] = (
+       df[col_institucion].apply(normalizar_texto)
+        if col_institucion else ""
+   )
    participantes = pd.DataFrame()
    participantes["Nombre"] = (
        df[col_nombre]
@@ -264,6 +275,9 @@ def preparar_calificaciones(df):
        df[col_nombre]
        .apply(normalizar_texto)
    )
+   notas_crudas = df[col_nota].apply(
+   lambda v: 0 if str(v).strip() == "-" else v
+)
    if col_id:
        resultados["NumeroID"] = (
            df[col_id]
@@ -272,7 +286,7 @@ def preparar_calificaciones(df):
    else:
        resultados["NumeroID"] = ""
    resultados["Nota"] = pd.to_numeric(
-       df[col_nota],
+       notas_crudas,
        errors="coerce"
    )
    return resultados
@@ -348,8 +362,10 @@ def enriquecer_con_planta(participantes, planta):
         "No encontrados en Planta": 0,
 
         "Nombres Duplicados en Planta": 0
+        
 
     }
+    
 
     # ======================================================
 
@@ -481,7 +497,20 @@ def enriquecer_con_planta(participantes, planta):
 
     agregar_observacion(df, mascara_dup, "Nombre duplicado en Planta")
 
+    # ======================================================
+    # 5. RESPALDO: USAR INSTITUCIÓN SI NO SE ENCONTRÓ EN PLANTA
+    # ======================================================
+    if "Institución" in df.columns:
+        usar_institucion = sin_dependencia & (df["Institución"] != "")
+        df.loc[usar_institucion, "Dependencia"] = df.loc[
+        usar_institucion, "Institución"
+   ]
+
     return df, estadisticas
+
+
+
+
  
 # ==========================================================
 # VALIDAR IDs VACÍOS
