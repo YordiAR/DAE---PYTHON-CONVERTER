@@ -201,7 +201,8 @@ def preparar_participantes(df):
           "Correo",
           "Email",
           "Correo electrónico",
-          "E-mail"
+          "E-mail",
+          "Dirección Email"
       ]
   )
   participantes = pd.DataFrame()
@@ -311,7 +312,8 @@ def preparar_calificaciones(df):
           "Correo",
           "Email",
           "Correo electrónico",
-          "E-mail"
+          "E-mail",
+            "Dirección Email"
       ]
   )
   resultados["Correo"] = (
@@ -358,7 +360,8 @@ def preparar_aprobados(df):
           "Correo",
           "Email",
           "Correo electrónico",
-          "E-mail"
+          "E-mail",
+            "Dirección Email"
       ]
   )
   aprobados["Correo"] = (
@@ -631,33 +634,54 @@ def procesar_con_nota(participantes, resultados):
 # CURSOS SIN NOTA
 # ==========================================================
 def procesar_sin_nota(participantes, aprobados):
-  participantes = participantes.copy()
-  aprobados_id = aprobados.drop_duplicates(
-      subset="NumeroID"
-  )
-  participantes = participantes.merge(
-      aprobados_id,
-      on="NumeroID",
-      how="left",
-      suffixes=("", "_apr")
-  )
-  participantes["Nota"] = ""
-  participantes["Aprobó"] = np.where(
-      participantes["Nombre_apr"].notna(),
-      "Sí",
-      "No"
-  )
-  eliminar = [
-      c
-      for c in participantes.columns
-      if c.endswith("_apr")
-  ]
-  participantes.drop(
-      columns=eliminar,
-      inplace=True,
-      errors="ignore"
-  )
-  return participantes
+ df = participantes.copy()
+ if "Correo" not in df.columns:
+     df["Correo"] = ""
+ aprobados = aprobados.copy()
+ if "Correo" not in aprobados.columns:
+     aprobados["Correo"] = ""
+ #--------------------------------------------------------
+ # CÉDULAS DUPLICADAS EN PARTICIPANTES
+ # (misma cédula para más de una persona -> ambiguo)
+ #--------------------------------------------------------
+ conteo_participantes = df.loc[df["NumeroID"] != "", "NumeroID"].value_counts()
+ cedulas_duplicadas = set(conteo_participantes[conteo_participantes > 1].index)
+ es_conflictivo = df["NumeroID"].isin(cedulas_duplicadas)
+ #--------------------------------------------------------
+ # MATCH EXACTO (NumeroID, Correo) -> para resolver conflictos
+ #--------------------------------------------------------
+ set_id_correo = set(zip(aprobados["NumeroID"], aprobados["Correo"]))
+ match_id_correo = pd.Series(
+     list(zip(df["NumeroID"], df["Correo"])),
+     index=df.index
+ ).isin(set_id_correo)
+ #--------------------------------------------------------
+ # MATCH SIMPLE POR CÉDULA (para los NO conflictivos)
+ #--------------------------------------------------------
+ ids_aprobados = set(aprobados["NumeroID"]) - {""}
+ match_id_simple = df["NumeroID"].isin(ids_aprobados) & (df["NumeroID"] != "")
+ #--------------------------------------------------------
+ # RESULTADO FINAL
+ #--------------------------------------------------------
+ aprobo = np.where(es_conflictivo, match_id_correo, match_id_simple)
+ df["Nota"] = ""
+ df["Aprobó"] = np.where(aprobo, "Sí", "No")
+ #--------------------------------------------------------
+ # MARCAR PARA REVISIÓN: cédula ambigua, aparece en Aprobados,
+ # pero el correo no coincide con nadie -> no se puede confirmar
+ #--------------------------------------------------------
+ mascara_inconsistente = (
+     es_conflictivo
+& df["NumeroID"].isin(ids_aprobados)
+& (~match_id_correo)
+ )
+ df.loc[mascara_inconsistente, "Aprobó"] = "Revisar"
+ agregar_observacion(
+     df,
+     mascara_inconsistente,
+     "Cédula duplicada en Participantes - revisar manualmente"
+ )
+ return df
 # ==========================================================
 # MOTOR GENERAL
 # ==========================================================
