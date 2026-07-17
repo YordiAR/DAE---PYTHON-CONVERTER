@@ -33,9 +33,9 @@ st.image(
   "images.png",
   width=100
 )
-st.title("Conversor de AVE")
+st.title("CRUCES CAMPUS VIRTUAL")
 st.caption(
-  "Procesamiento automático de participantes, planta y resultados."
+  "Procesamiento automático de participantes planta y resultados."
 )
 st.divider()
 # ==========================================================
