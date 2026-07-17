@@ -7,6 +7,7 @@ import pandas as pd
 import numpy as np
 import unicodedata
 import re
+import os
 from io import BytesIO
 from openpyxl import Workbook
 from openpyxl.styles import (
@@ -56,6 +57,10 @@ COLOR_AMARILLO = "FFF59D"
 COLOR_ROJO = "EF9A9A"
 COLOR_VERDE = "C8E6C9"
 COLOR_GRIS = "E0E0E0"
+# ==========================================================
+# PLANTA GUARDADA (archivo fijo en el repositorio)
+# ==========================================================
+RUTA_PLANTA = "planta.xlsx"
 # ==========================================================
 # NORMALIZAR TEXTO
 # ==========================================================
@@ -129,6 +134,16 @@ def cargar_excel(archivo):
   except Exception as e:
       st.error(e)
       st.stop()
+# ==========================================================
+# CARGAR PLANTA GUARDADA (sin necesidad de subirla)
+# ==========================================================
+def cargar_planta_guardada():
+  if not os.path.exists(RUTA_PLANTA):
+      return None
+  return pd.read_excel(
+      RUTA_PLANTA,
+      dtype=object
+  )
 # ==========================================================
 # CREAR OBSERVACIONES
 # ==========================================================
@@ -369,6 +384,39 @@ def preparar_aprobados(df):
       if col_correo else ""
   )
   return aprobados
+# ==========================================================
+# SIN CRUCE CON PLANTA (cuando el usuario decide no usarla)
+# ==========================================================
+def omitir_cruce_planta(participantes):
+   """
+   No hay cruce por cédula ni por nombre contra Planta.
+   Solo se aplica el respaldo de Institución (si viene en
+   Participantes) para completar Dependencia. Las estadísticas
+   quedan en la misma forma que espera generar_resumen, para
+   no romper el resto de la app.
+   """
+   df = participantes.copy()
+
+   if "Institución" in df.columns:
+       tiene_institucion = df["Institución"] != ""
+       df.loc[tiene_institucion, "Dependencia"] = df.loc[
+           tiene_institucion, "Institución"
+       ]
+
+   agregar_observacion(
+       df,
+       pd.Series(True, index=df.index),
+       "Planta no utilizada"
+   )
+
+   estadisticas = {
+       "Encontrados por ID": 0,
+       "Encontrados por Nombre": 0,
+       "Cedulas Recuperadas": 0,
+       "No encontrados en Planta": 0,
+       "Nombres Duplicados en Planta": 0
+   }
+   return df, estadisticas
 # ==========================================================
 # CRUCE CON PLANTA
 # ==========================================================
@@ -634,54 +682,33 @@ def procesar_con_nota(participantes, resultados):
 # CURSOS SIN NOTA
 # ==========================================================
 def procesar_sin_nota(participantes, aprobados):
- df = participantes.copy()
- if "Correo" not in df.columns:
-     df["Correo"] = ""
- aprobados = aprobados.copy()
- if "Correo" not in aprobados.columns:
-     aprobados["Correo"] = ""
- #--------------------------------------------------------
- # CÉDULAS DUPLICADAS EN PARTICIPANTES
- # (misma cédula para más de una persona -> ambiguo)
- #--------------------------------------------------------
- conteo_participantes = df.loc[df["NumeroID"] != "", "NumeroID"].value_counts()
- cedulas_duplicadas = set(conteo_participantes[conteo_participantes > 1].index)
- es_conflictivo = df["NumeroID"].isin(cedulas_duplicadas)
- #--------------------------------------------------------
- # MATCH EXACTO (NumeroID, Correo) -> para resolver conflictos
- #--------------------------------------------------------
- set_id_correo = set(zip(aprobados["NumeroID"], aprobados["Correo"]))
- match_id_correo = pd.Series(
-     list(zip(df["NumeroID"], df["Correo"])),
-     index=df.index
- ).isin(set_id_correo)
- #--------------------------------------------------------
- # MATCH SIMPLE POR CÉDULA (para los NO conflictivos)
- #--------------------------------------------------------
- ids_aprobados = set(aprobados["NumeroID"]) - {""}
- match_id_simple = df["NumeroID"].isin(ids_aprobados) & (df["NumeroID"] != "")
- #--------------------------------------------------------
- # RESULTADO FINAL
- #--------------------------------------------------------
- aprobo = np.where(es_conflictivo, match_id_correo, match_id_simple)
- df["Nota"] = ""
- df["Aprobó"] = np.where(aprobo, "Sí", "No")
- #--------------------------------------------------------
- # MARCAR PARA REVISIÓN: cédula ambigua, aparece en Aprobados,
- # pero el correo no coincide con nadie -> no se puede confirmar
- #--------------------------------------------------------
- mascara_inconsistente = (
-     es_conflictivo
-& df["NumeroID"].isin(ids_aprobados)
-& (~match_id_correo)
- )
- df.loc[mascara_inconsistente, "Aprobó"] = "Revisar"
- agregar_observacion(
-     df,
-     mascara_inconsistente,
-     "Cédula duplicada en Participantes - revisar manualmente"
- )
- return df
+  participantes = participantes.copy()
+  aprobados_id = aprobados.drop_duplicates(
+      subset="NumeroID"
+  )
+  participantes = participantes.merge(
+      aprobados_id,
+      on="NumeroID",
+      how="left",
+      suffixes=("", "_apr")
+  )
+  participantes["Nota"] = ""
+  participantes["Aprobó"] = np.where(
+      participantes["Nombre_apr"].notna(),
+      "Sí",
+      "No"
+  )
+  eliminar = [
+      c
+      for c in participantes.columns
+      if c.endswith("_apr")
+  ]
+  participantes.drop(
+      columns=eliminar,
+      inplace=True,
+      errors="ignore"
+  )
+  return participantes
 # ==========================================================
 # MOTOR GENERAL
 # ==========================================================
@@ -887,22 +914,26 @@ def exportar_excel(reporte, resumen):
 # ==========================================================
 # INTERFAZ
 # ==========================================================
-tipo_curso = st.selectbox(
-  "Tipo de curso",
-  [
-      "Con nota",
-      "Sin nota"
-  ]
-)
+col_titulo, col_opciones = st.columns([8, 1])
+with col_titulo:
+  tipo_curso = st.selectbox(
+      "Tipo de curso",
+      [
+          "Con nota",
+          "Sin nota"
+      ]
+  )
+with col_opciones:
+  with st.expander("⚙️"):
+      usar_planta = st.checkbox(
+          "Usar Planta",
+          value=True
+      )
 st.divider()
 col1, col2 = st.columns(2)
 with col1:
   participantes_file = st.file_uploader(
       "📄 Participantes",
-      type="xlsx"
-  )
-  planta_file = st.file_uploader(
-      "🏢 Planta",
       type="xlsx"
   )
 with col2:
@@ -927,21 +958,25 @@ if st.button(
   if participantes_file is None:
       st.error("Debe cargar Participantes.")
       st.stop()
-  if planta_file is None:
-      st.error("Debe cargar Planta.")
-      st.stop()
   if resultados_file is None:
       st.error("Debe cargar el archivo de resultados.")
       st.stop()
+  planta_cruda = None
+  if usar_planta:
+      planta_cruda = cargar_planta_guardada()
+      if planta_cruda is None:
+          st.error(
+              f"No se encontró el archivo de Planta guardado "
+              f"({RUTA_PLANTA}). Súbelo al repositorio o "
+              f"desmarca 'Usar Planta' en ⚙️."
+          )
+          st.stop()
   barra = st.progress(0)
   # ------------------------------------------------------
   # Leer archivos
   # ------------------------------------------------------
   participantes = cargar_excel(
       participantes_file
-  )
-  planta = cargar_excel(
-      planta_file
   )
   resultados = cargar_excel(
       resultados_file
@@ -953,9 +988,6 @@ if st.button(
   participantes = preparar_participantes(
       participantes
   )
-  planta = preparar_planta(
-      planta
-  )
   if tipo_curso == "Con nota":
       resultados = preparar_calificaciones(
           resultados
@@ -966,12 +998,20 @@ if st.button(
       )
   barra.progress(25)
   # ------------------------------------------------------
-  # Cruce Planta
+  # Cruce Planta (opcional)
   # ------------------------------------------------------
-  participantes, estadisticas_planta = enriquecer_con_planta(
-      participantes,
-      planta
-  )
+  if usar_planta:
+      planta = preparar_planta(
+          planta_cruda
+      )
+      participantes, estadisticas_planta = enriquecer_con_planta(
+          participantes,
+          planta
+      )
+  else:
+      participantes, estadisticas_planta = omitir_cruce_planta(
+          participantes
+      )
   barra.progress(45)
   # ------------------------------------------------------
   # Validaciones
